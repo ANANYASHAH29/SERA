@@ -63,6 +63,13 @@ def run_canary_at_current_checkout(repo_root: Path):
 def evaluate_at_ref(repo_root: Path, sha: str):
     """Checks out `sha` in the local repo, runs the canary eval there, then
     restores the original ref. Refuses to run against a dirty working tree.
+
+    Restores to the original *branch name* when one was checked out, not
+    just its commit hash -- checking out a bare SHA leaves the repo in
+    detached HEAD even when it's the same commit the branch already
+    points at, which would silently detach a caller's working branch.
+    Only falls back to the raw hexsha if we started detached already
+    (the normal state for a CI checkout of a PR).
     """
     import git
 
@@ -71,7 +78,7 @@ def evaluate_at_ref(repo_root: Path, sha: str):
         raise RuntimeError(
             "refusing to checkout a different commit: working tree has uncommitted changes"
         )
-    original_ref = repo.head.commit.hexsha
+    original_ref = repo.head.commit.hexsha if repo.head.is_detached else repo.active_branch.name
     try:
         repo.git.checkout(sha)
         return run_canary_at_current_checkout(repo_root)
