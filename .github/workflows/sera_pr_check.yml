@@ -1,0 +1,44 @@
+name: SERA PR check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sera-pr-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so base/head SHAs both resolve locally
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore CIFAR-10 checkpoints cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            checkpoints
+            data
+            canary
+          key: sera-cifar10-checkpoints-v1
+
+      - name: Train checkpoints if cache missed
+        run: |
+          if [ ! -f checkpoints/resnet18_cifar10.pt ]; then
+            python scripts/train_baseline_model.py --epochs 8 --batch-size 128 --train-subset 8000
+          fi
+
+      - name: Run SERA PR check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/pr_check.py --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}"

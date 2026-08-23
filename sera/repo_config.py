@@ -1,0 +1,106 @@
+"""Loads a `.sera.yml` from a target repo so risk-category file patterns
+and the canary entrypoint become something any repo can declare for
+itself, instead of SERA's hardcoded demo-pipeline patterns.
+
+Example `.sera.yml`:
+
+    risk_categories:
+      F1_resize:
+        - "config/preprocessing.yaml"
+        - "**/resize_params.py"
+      F3_normalization:
+        - "config/normalize_constants.py"
+      F5_checkpoint:
+        - "models/*.checkpoint_ref"
+    canary:
+      entrypoint: "canary_eval.py"
+
+Category keys are matched permissively: "F1_resize", "F1-resize", and
+bare "F1" all normalize to the canonical category "F1" (regex on the
+leading `[FD]\\d+` token), so repo owners can use whatever descriptive
+suffix reads best in their own config. Unrecognized keys are ignored
+rather than raising, so a typo in one category doesn't break the rest.
+
+If no `.sera.yml` exists, callers should fall back to SERA's built-in
+demo-pipeline patterns (`sera.conditions.registry.all_risk_patterns`) --
+this module never fabricates a fallback itself, it just returns None.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import yaml
+
+CATEGORY_KEY_RE = re.compile(r"^([FD]\d+)")
+CONFIG_FILENAME = ".sera.yml"
+
+
+@dataclass
+class RepoConfig:
+    risk_patterns: Dict[str, List[str]] = field(default_factory=dict)
+    canary_entrypoint: Optional[str] = None
+    source: Optional[str] = None  # "path:<p>" or "github:<repo>@<ref>"
+
+
+def _normalize_category_key(key: str) -> Optional[str]:
+    match = CATEGORY_KEY_RE.match(str(key).strip())
+    return match.group(1) if match else None
+
+
+def _parse_config_text(text: str, source: Optional[str] = None) -> RepoConfig:
+    data = yaml.safe_load(text) or {}
+    raw_categories = data.get("risk_categories", {}) or {}
+
+    risk_patterns: Dict[str, List[str]] = {}
+    for key, patterns in raw_categories.items():
+        canonical = _normalize_category_key(key)
+        if canonical is None:
+            continue
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        risk_patterns.setdefault(canonical, []).extend(patterns)
+
+    canary_cfg = data.get("canary", {}) or {}
+    return RepoConfig(
+        risk_patterns=risk_patterns,
+        canary_entrypoint=canary_cfg.get("entrypoint"),
+        source=source,
+    )
+
+
+def load_repo_config_from_path(repo_root) -> Optional[RepoConfig]:
+    """Reads `.sera.yml` from a local checkout (e.g. a GitHub Actions
+    workspace after actions/checkout). Returns None if absent -- this is
+    the expected, non-error case for repos that haven't opted in yet.
+    """
+    path = Path(repo_root) / CONFIG_FILENAME
+    if not path.exists():
+        return None
+    return _parse_config_text(path.read_text(encoding="utf-8"), source=f"path:{path}")
+
+
+def load_repo_config_from_github(repo_full_name: str, ref: str, token: Optional[str] = None):
+    """Fetches `.sera.yml` via the GitHub contents API at a given ref, for
+    callers without a local checkout (e.g. a hosted SERA backend hitting
+    the API directly rather than running inside repo CI). Returns None if
+    the file doesn't exist at that ref.
+    """
+    import base64
+    import os
+
+    from github import Github, GithubException
+
+    token = token or os.environ.get("GITHUB_TOKEN")
+    client = Github(token) if token else Github()
+    repo = client.get_repo(repo_full_name)
+    try:
+        content_file = repo.get_contents(CONFIG_FILENAME, ref=ref)
+    except GithubException as e:
+        if e.status == 404:
+            return None
+        raise
+    text = base64.b64decode(content_file.content).decode("utf-8")
+    return _parse_config_text(text, source=f"github:{repo_full_name}@{ref}")

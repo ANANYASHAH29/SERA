@@ -1,0 +1,23 @@
+# Reference .sera.yml for SERA's own demo pipeline. Any repo can drop a
+# file like this in its root to declare its own risk-category file
+# mappings and canary entrypoint instead of relying on SERA's hardcoded
+# demo-pipeline patterns. See README "Setting up .sera.yml for a new repo".
+risk_categories:
+  F1_resize:
+    - "sera/conditions/inject_f1_resize.py"
+    - "**/resize_config*"
+  F2_channel_order:
+    - "sera/conditions/inject_f2_channel_swap.py"
+    - "sera/pipeline/input_prep.py"
+  F3_normalization:
+    - "sera/conditions/inject_f3_normalization.py"
+    - "**/preprocessing_config*"
+  F4_corruption_filter:
+    - "sera/conditions/inject_f4_corruption.py"
+    - "sera/pipeline/ingestion.py"
+  F5_checkpoint:
+    - "sera/conditions/inject_f5_checkpoint.py"
+    - "**/*checkpoint*"
+
+canary:
+  entrypoint: "scripts/canary_eval_entrypoint.py"

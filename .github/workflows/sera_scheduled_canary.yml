@@ -1,0 +1,65 @@
+name: SERA scheduled canary
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours -- catches drift, which no PR ever triggers
+  workflow_dispatch: {} # allows a manual "Run workflow" trigger for testing
+
+permissions:
+  contents: write # to commit the baseline-metrics snapshot back
+  issues: write
+
+jobs:
+  sera-scheduled-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore CIFAR-10 checkpoints cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            checkpoints
+            data
+            canary
+          key: sera-cifar10-checkpoints-v1
+
+      - name: Train checkpoints if cache missed
+        run: |
+          if [ ! -f checkpoints/resnet18_cifar10.pt ]; then
+            python scripts/train_baseline_model.py --epochs 8 --batch-size 128 --train-subset 8000
+          fi
+
+      # Baseline-metrics JSON persistence: GitHub Actions cache is
+      # content-addressed by key and won't overwrite an existing key, so we
+      # use a restore-keys prefix match to pick up the most recent baseline
+      # and always save under a fresh (run-numbered) key. See README
+      # "Scheduled canary runs" for why this is a JSON snapshot, not the
+      # full sera_state.db.
+      - name: Restore last baseline snapshot
+        uses: actions/cache/restore@v4
+        with:
+          path: .sera/baseline_metrics.json
+          key: sera-baseline-${{ github.run_id }}
+          restore-keys: |
+            sera-baseline-
+
+      - name: Run scheduled canary
+        id: canary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/run_scheduled_canary.py --repo "${{ github.repository }}" --lookback-hours 6
+
+      - name: Save baseline snapshot
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .sera/baseline_metrics.json
+          key: sera-baseline-${{ github.run_id }}

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+checkpoints/
+canary/
+results/*.png
+results/*.csv
+results/*.json
+sera_state.db
+train_log.txt
+cifar_download.log
+.venv/
