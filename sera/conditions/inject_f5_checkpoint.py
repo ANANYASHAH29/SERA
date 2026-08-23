@@ -19,7 +19,7 @@ RISK_FILE_PATTERNS = [
 ]
 DESCRIPTION = "wrong/stale model checkpoint loaded at inference time"
 
-WRONG_CHECKPOINT_NAME = "resnet18_cifar10_stale"
+WRONG_CHECKPOINT_NAME = "resnet18_cifar10_stale"  # rollback target for the F5 demo commit
 
 
 def apply(config: PipelineConfig, severity: float = 1.0) -> PipelineConfig:
