@@ -11,3 +11,5 @@ sera_state.db
 train_log.txt
 cifar_download.log
 .venv/
+*.log
+.sera/

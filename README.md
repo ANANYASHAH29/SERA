@@ -67,6 +67,7 @@ scripts/
   sera_pr_check.yml               # runs pr_check.py on every PR
   sera_scheduled_canary.yml         # runs run_scheduled_canary.py on a cron schedule
 .sera.yml                         # SERA's own risk-pattern config (also the reference example)
+frontend/                         # React + Vite + Tailwind dashboard (optional; see below)
 tests/
 results/
 ```
@@ -126,6 +127,23 @@ Open http://127.0.0.1:8000/docs for the Swagger UI. Typical flow:
 Run context (configs/canary images per run) is kept in-process, so steps
 1-6 must happen against the same running API process — this is a research
 prototype, not a durable service.
+
+## Running the frontend
+
+A minimal React + Vite + Tailwind dashboard lives in `frontend/` — the
+same 6-step flow as above, plus a view of the `results/` experiment
+sweep (accuracy summary, cost comparison, confusion matrices). With the
+API already running:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://127.0.0.1:5173. See `frontend/README.md` for details. This
+is optional polish, not required for anything else in this repo — the
+API + Swagger UI is the full system either way.
 
 ## Synthetic mode vs a real GitHub repo
 
