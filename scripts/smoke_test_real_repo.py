@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from sera.conditions.registry import ALL_CATEGORIES, DRIFT_LABEL
 from sera.github_integration.commit_types import CommitInfo
