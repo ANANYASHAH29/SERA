@@ -286,3 +286,4 @@ safer default for a live demo.
 No LLM calls anywhere in the diagnostic logic, no Docker/Kubernetes, no
 vector database, no online retraining loop, no black-box ML classifier for
 ranking (the ranker is plain, auditable Python).
+
