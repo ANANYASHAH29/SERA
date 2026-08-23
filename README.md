@@ -33,10 +33,12 @@ sera/
     inject_d1_covariate_shift.py                      # D1: genuine drift (no commit)
     registry.py                                        # risk-file patterns + shape templates
   github_integration/
-    fetch_commits.py            # real commit/PR history via PyGithub
-    diff_analyzer.py             # classifies changed files into F1-F5 risk categories
+    fetch_commits.py            # real commit/PR history via PyGithub (rate-limit retry, force-push tolerant)
+    diff_analyzer.py             # classifies changed files into risk categories (.sera.yml or built-in patterns)
     synthetic_history.py          # fake commit history generator for testing
-    pr_commenter.py                 # optional: posts attribution result to a PR
+    pr_commenter.py                 # posts attribution result to a PR
+  repo_config.py                # loads a repo's own .sera.yml (risk patterns + canary entrypoint)
+  canary_interface.py           # pluggable canary-eval contract (subprocess JSON or in-process callable)
   method/
     evidence_signals.py           # observed confidence/entropy "shape" fingerprint
     ranker.py                       # joint ranking: commits + drift hypothesis
@@ -57,6 +59,14 @@ scripts/
   train_baseline_model.py         # trains the two CIFAR-10 checkpoints SERA needs
   calibrate_templates.py            # prints observed shape vectors per condition
   demo_end_to_end.py                  # scripted single-scenario walkthrough
+  canary_eval_entrypoint.py             # reference subprocess canary-eval implementation
+  pr_check.py                             # PR bot: base-vs-head eval, rank, comment-or-stay-silent
+  run_scheduled_canary.py                   # cron-friendly canary run, independent of any PR
+  smoke_test_real_repo.py                     # read-only dry-run against a real repo
+.github/workflows/
+  sera_pr_check.yml               # runs pr_check.py on every PR
+  sera_scheduled_canary.yml         # runs run_scheduled_canary.py on a cron schedule
+.sera.yml                         # SERA's own risk-pattern config (also the reference example)
 tests/
 results/
 ```
@@ -143,6 +153,132 @@ python scripts/demo_end_to_end.py --github your-org/your-repo --since 2026-08-01
 Point this at even a small toy repo with a handful of real commits
 touching your pipeline's config files to sanity-check the fetch/classify
 path against real merge commits, squashed PRs, and unrelated file changes.
+
+## Deploying against a real repo
+
+Everything above (the CIFAR-10 demo, synthetic history, the FastAPI app)
+still works exactly as before and needs nothing below this point. The
+rest of this section is for pointing SERA at an arbitrary repo instead of
+its own demo pipeline.
+
+### (a) The CIFAR-10 demo, unchanged
+
+`scripts/demo_end_to_end.py`, `experiments/run_trials.py`, the FastAPI
+app, and the whole pytest suite still run exactly as documented above —
+this phase is purely additive. If no `.sera.yml` is present, every risk
+classification and canary evaluation falls back to SERA's original
+hardcoded CIFAR-10 patterns and reference pipeline.
+
+### (b) Setting up `.sera.yml` for a new repo
+
+Drop a `.sera.yml` in your repo's root (see the one at this project's own
+root for a real, working example — SERA uses it on itself):
+
+```yaml
+risk_categories:
+  F1_resize:
+    - "config/preprocessing.yaml"
+    - "**/resize_params.py"
+  F3_normalization:
+    - "config/normalize_constants.py"
+  F5_checkpoint:
+    - "models/*.checkpoint_ref"
+canary:
+  entrypoint: "canary_eval.py"
+```
+
+Notes:
+- Category keys are matched by their leading `F1`-`F5`/`D1` token, so
+  `F1_resize`, `F1-resize`, or bare `F1` all work — use whatever suffix
+  reads clearest in your own config. Unrecognized keys are ignored, not
+  fatal.
+- Patterns are plain `fnmatch` globs, **not** gitignore-style implicit
+  "match anywhere" — `"models/*.ckpt"` only matches a file directly under
+  `models/`. Prefix with `**/` (e.g. `"**/*.ckpt"`) to match at any depth.
+- `canary.entrypoint` points at your own script implementing the
+  subprocess contract in `sera/canary_interface.py`: run it, and expect
+  the LAST line of its stdout to be one JSON object:
+  `{"accuracy": ..., "mean_confidence": ..., "mean_entropy": ..., "per_sample_confidence": [...], "per_sample_correct": [...]}`.
+  `per_sample_correct` is required, not optional — without it SERA can't
+  tell which images flipped from correct to wrong, which is exactly the
+  signal genuine-drift detection depends on. See
+  `scripts/canary_eval_entrypoint.py` for a real, working reference
+  implementation (it's what SERA runs on its own CIFAR-10 pipeline).
+- No `.sera.yml`? Everything falls back to the built-in demo patterns —
+  nothing breaks, you just don't get repo-specific classification yet.
+
+### (c) Running the scheduled Action
+
+`.github/workflows/sera_scheduled_canary.yml` runs
+`scripts/run_scheduled_canary.py` on a cron schedule (every 6 hours by
+default) — independent of any PR, which is required for genuine drift
+(D1) to ever be caught, since nothing about drift triggers a PR. It:
+
+1. Runs your `canary.entrypoint` (or the CIFAR-10 reference pipeline).
+2. Compares against a small `.sera/baseline_metrics.json` snapshot
+   persisted across runs via `actions/cache` (restore-keys prefix match,
+   since cache entries are immutable per exact key — see the workflow's
+   comments). First run bootstraps this file.
+3. On a regression, fetches recent commit history, ranks it against the
+   drift hypothesis, and writes the result to the job's step summary.
+
+Scheduled mode intentionally stops at ranking, not full validation: the
+in-process validator (`sera/method/validator.py`) reverts a
+`PipelineConfig` field, which only makes sense for SERA's own reference
+pipeline — an arbitrary repo's canary is an opaque subprocess with no such
+config to revert. Full before/after validation for an arbitrary repo is
+exactly what the PR bot provides instead (next section), via git checkout
+rather than config reversion.
+
+To trigger it manually (e.g. to test it once, per the testing checklist
+below): open the repo on GitHub → Actions → "SERA scheduled canary" →
+"Run workflow". Or run it locally:
+
+```bash
+python scripts/run_scheduled_canary.py --repo-root . --baseline-file .sera/baseline_metrics.json
+```
+
+### (d) The PR-comment bot
+
+`.github/workflows/sera_pr_check.yml` runs `scripts/pr_check.py` on every
+PR open/update. It checks out the PR's base commit, runs the canary eval
+there, checks out the head commit, runs it again, and only if a
+regression is found AND the top-ranked suspect is one of *this PR's own
+commits* does it post a comment (via `pr_commenter.py`) with the evidence
+used. If the top suspect is drift, or a commit outside this PR, it stays
+completely silent — a bot that comments "just in case" trains people to
+ignore it.
+
+The base-vs-head comparison is a git-native equivalent of SERA's
+in-process "revert and re-run" validator: checking out the base commit
+*is* reverting this PR's changes, code and canary script both, without
+SERA needing to understand the target repo's own config format.
+
+Runs automatically in CI with the standard `GITHUB_TOKEN` (needs
+`pull-requests: write`, already set in the workflow). To test locally
+against an open PR:
+
+```bash
+export GITHUB_TOKEN=ghp_xxx
+python scripts/pr_check.py --repo owner/name --pr 42 --dry-run   # ranks + prints, never posts
+python scripts/pr_check.py --repo owner/name --pr 42             # posts for real if implicated
+```
+
+### Real-world commit-history robustness
+
+`fetch_commits.py` retries on `RateLimitExceededException` with backoff
+derived from GitHub's `x-ratelimit-reset` header (capped at 15 minutes),
+and degrades to "no evidence for this commit" rather than crashing when a
+SHA stops resolving mid-fetch (a force-push happened underneath it) or a
+commit's file list is too large for the API to return in full. Squashed
+merge commits (one commit, dozens of files, one of them risky) are
+classified correctly — touching a risk file is still real provenance
+evidence — but `tests/test_commit_history_robustness.py` confirms that
+provenance alone doesn't let an incidental risk-file touch outrank a
+genuinely better-fitting candidate; shape match still has to pull its
+weight. See that test file's comments for why a single-candidate
+"provenance vs. drift" framing isn't actually the fair version of this
+claim, and what is.
 
 ## Running experiments
 
@@ -236,11 +372,13 @@ actually matters. The clean sweep alone doesn't demonstrate that; say so
 if reporting these numbers rather than implying the confusion matrix is
 where SERA's advantage over confidence-only lives.
 
-**7. Real-world smoke test.** Point `fetch_commit_history` (or
-`scripts/demo_end_to_end.py --github ...`) at a real small repo (even one
-you set up yourself with a few commits touching pipeline config files) and
-confirm it doesn't choke on merge commits, squashed PRs, or unrelated
-files.
+**7. Real-world smoke test.** `python scripts/smoke_test_real_repo.py
+--repo owner/name --since 2026-08-01 --until 2026-08-23` (or `--local-path
+/path/to/clone` for no-token offline testing) fetches real commits,
+classifies each one's diff, and confirms the fetch/classify path doesn't
+choke on merge commits, squashed PRs, or unrelated files — read-only, no
+regression required. Add `--simulate-condition F3` to also print an
+illustrative (clearly-labeled, not real) ranking.
 
 **8. End-to-end demo.** `python scripts/demo_end_to_end.py` scripts the
 full walkthrough — baseline → inject F3 → detection → history → ranking →
@@ -248,6 +386,36 @@ validation → recovery → case memory — for a live presentation. Pass
 `--github owner/repo --since ... --until ...` to use a real repo instead
 of the synthetic fallback; the synthetic path needs no network and is the
 safer default for a live demo.
+
+## Rolling out against a real repo: Stage 1 → Stage 2
+
+Work through these in order — each one only makes sense once the previous
+one is clean, and each requires actions only a repo owner can take (opening
+a real PR, adding a real token) that this system can't do on its own.
+
+**Stage 1 — a self-created demo repo you control:**
+
+1. **Dry-run smoke test first.** `python scripts/smoke_test_real_repo.py
+   --repo you/your-demo-repo --since ... --until ...` — confirm commit
+   fetching and diff classification work against real API calls before
+   anything else. This is the messiest layer (real merge commits, real
+   API pagination) and the one most likely to surprise you.
+2. **Manually trigger the scheduled canary run once** (Actions → "SERA
+   scheduled canary" → "Run workflow") and confirm it runs and completes
+   independent of any PR being open.
+3. **Open a real test PR containing one known-risky change** (e.g. a
+   commit touching a path your `.sera.yml` maps to a risk category) and
+   confirm the bot comments, with evidence that actually matches what you
+   changed.
+4. **Open a second test PR containing only harmless changes** and confirm
+   the bot stays completely silent — this is as important a pass/fail
+   signal as step 3; a bot that comments on everything is worse than one
+   that comments on nothing.
+
+**Stage 2 — a real external repo,** only once all four Stage-1 steps pass
+cleanly: repeat the dry-run smoke test (step 1) against it first, since
+external repos have commit-history shapes (bots, squash-merge policies,
+huge contributor lists) your own demo repo won't have exercised.
 
 ## Known limitations (worth stating honestly, not hiding)
 
@@ -280,6 +448,23 @@ safer default for a live demo.
   SQLite.** Restarting the API server between `/runs/*` and
   `/incidents/*/validate` calls loses that context — fine for a research
   prototype and a single demo session, not for a durable service.
+- **Scheduled canary runs rank but don't validate.** The in-process
+  validator reverts a `PipelineConfig` field, which doesn't generalize to
+  an arbitrary repo's opaque subprocess canary. Full validation for a real
+  repo comes from the PR bot's base-vs-head git checkout instead — a
+  scheduled run that finds an incident with no open PR near it (e.g. pure
+  drift between merges) gets ranked and logged, not auto-confirmed.
+- **The scheduled-run baseline persistence (`actions/cache` + a JSON
+  snapshot) is a pragmatic pattern, not a real database.** Good enough to
+  diff "now" against "last scheduled run", not a substitute for the
+  SQLite case memory the in-process demo uses. A concurrent workflow run
+  or a cache eviction can lose the snapshot; the script bootstraps a fresh
+  one automatically rather than crashing when that happens.
+- **`.sera.yml` glob patterns are plain `fnmatch`, not gitignore
+  semantics.** A pattern with no `**/` prefix is root-anchored, not
+  "matches anywhere" — see "Setting up `.sera.yml` for a new repo" above.
+  Easy to get a silent false-negative (a real risk file that just doesn't
+  match your pattern) if you forget this.
 
 ## Explicitly out of scope
 
