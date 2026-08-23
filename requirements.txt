@@ -16,3 +16,4 @@ scipy
 Pillow
 numpy
 PyYAML
+requests

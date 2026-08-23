@@ -10,10 +10,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from sera.api.routes_badge import router as badge_router
 from sera.api.routes_experiments import router as experiments_router
 from sera.api.routes_incidents import router as incidents_router
 from sera.api.routes_runs import router as runs_router
+from sera.api.routes_tenant import router as tenant_router
 from sera.api.routes_validate import router as validate_router
+from sera.api.routes_webhook import router as webhook_router
 from sera.config import RESULTS_DIR
 
 app = FastAPI(
@@ -38,6 +41,9 @@ app.include_router(runs_router)
 app.include_router(incidents_router)
 app.include_router(validate_router)
 app.include_router(experiments_router)
+app.include_router(tenant_router)
+app.include_router(webhook_router)
+app.include_router(badge_router)
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/results-static", StaticFiles(directory=str(RESULTS_DIR)), name="results-static")

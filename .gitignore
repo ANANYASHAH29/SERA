@@ -13,3 +13,5 @@ cifar_download.log
 .venv/
 *.log
 .sera/
+.env.github_app
+_github_app_manifest_form.html
