@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { ConnectedRepoOut } from "../api";
 import { useSession } from "../session";
 import { Button, ErrorBanner } from "../components/StepCard";
+import { AutoDetectSection } from "../components/AutoDetectSection";
 
 export function SettingsPage() {
   const { id } = useParams();
@@ -88,6 +89,8 @@ export function SettingsPage() {
           </pre>
         )}
       </section>
+
+      {session && id && <AutoDetectSection userId={session.userId} repoId={parseInt(id, 10)} />}
 
       <section className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-4">
         <h2 className="mb-2 text-sm font-semibold text-indigo-900">Scan your repo's real code</h2>

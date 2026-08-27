@@ -153,6 +153,14 @@ class ConnectedRepo(Base):
     # first report ever received for this repo.
     baseline_snapshot_json = Column(Text, nullable=True)
 
+    # Separate baseline for the generic (non-CV, e.g. sklearn/tabular)
+    # ingestion path (see sera/api/routes_generic_scan.py) -- deliberately
+    # its own column, not reused from baseline_snapshot_json above, since
+    # the two paths use different JSON schemas (task_type/primary_metric/...
+    # vs accuracy/mean_confidence/...) and mixing them would silently
+    # corrupt whichever path read the other's snapshot next.
+    generic_baseline_snapshot_json = Column(Text, nullable=True)
+
     __table_args__ = (UniqueConstraint("user_id", "repo_full_name", name="uq_user_repo"),)
 
     user = relationship("User", back_populates="connected_repos")

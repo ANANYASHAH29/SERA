@@ -33,11 +33,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from sera.canary_interface import CanaryEvalResult, to_run_metrics
-from sera.db.models import ConnectedRepo, ScanResult, User
+from sera.db.models import ConnectedRepo, ScanResult
 from sera.db.session import session_scope
 from sera.github_integration.diff_analyzer import classify_commits
 from sera.github_integration.fetch_commits import fetch_commit_history
-from sera.github_integration.github_app import get_installation_token
 from sera.method.evidence_signals import compute_shape_features
 from sera.method.memory import record_run
 from sera.method.ranker import rank_candidates
@@ -156,11 +155,12 @@ def report_scan(repo_id: int, req: ReportScanRequest):
 
 
 def _fetch_and_classify_commits(session, repo: ConnectedRepo):
-    user = session.query(User).filter_by(id=repo.user_id).one_or_none()
-    if user is None or not user.github_app_installation_id:
+    from sera.method.tenancy import get_installation_token_for_repo
+
+    token = get_installation_token_for_repo(session, repo)
+    if token is None:
         return []  # no installation to fetch commits with -- rank against drift-only
     try:
-        token = get_installation_token(user.github_app_installation_id)
         since = datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS)
         until = datetime.now(timezone.utc)
         commits = fetch_commit_history(repo.repo_full_name, since=since, until=until, token=token)

@@ -101,6 +101,27 @@ export interface ScanResultOut {
   created_at: string;
 }
 
+export interface ScanSignalsOut {
+  model_artifact: { found: boolean; path: string | null };
+  sklearn_import: { found: boolean; files: string[] };
+  train_test_split: { found: boolean; file: string | null };
+  held_out_csv: { found: boolean; path: string | null };
+  held_out_set_detected: boolean;
+  all_signals_found: boolean;
+  missing_signals: string[];
+  scan_truncated: boolean;
+}
+
+export interface GenericScanResult {
+  task_type: string;
+  primary_metric: number;
+  primary_metric_name: string;
+  secondary_metrics: Record<string, number>;
+  per_sample_scores: number[];
+  n_samples: number;
+  canary_set_hash?: string;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -206,6 +227,21 @@ export const api = {
   reportToken: (userId: number, repoId: number) =>
     request<{ report_token: string; report_url: string }>(
       `/tenant/repos/${repoId}/report-token?user_id=${userId}&base_url=${encodeURIComponent(BACKEND_ORIGIN)}`
+    ),
+
+  // --- sklearn/tabular auto-detection (Part B) ---
+  detectSignals: (userId: number, repoId: number) =>
+    request<ScanSignalsOut>(`/tenant/repos/${repoId}/detect-signals?user_id=${userId}`),
+
+  canaryDraft: (userId: number, repoId: number) =>
+    request<{ draft: string; signals: ScanSignalsOut }>(
+      `/tenant/repos/${repoId}/canary-draft?user_id=${userId}`
+    ),
+
+  ingestScanResult: (userId: number, repoId: number, result: GenericScanResult) =>
+    request<{ status: string; scan_id?: number; metric_drop?: number; primary_metric?: number }>(
+      `/tenant/repos/${repoId}/ingest-scan-result?user_id=${userId}`,
+      { method: "POST", body: JSON.stringify(result) }
     ),
 };
 

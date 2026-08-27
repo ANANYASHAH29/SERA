@@ -17,6 +17,23 @@ from sqlalchemy.orm import Session
 from sera.db.models import ConnectedRepo, Incident, ScanResult, User
 
 
+def get_installation_token_for_repo(session: Session, repo: ConnectedRepo) -> Optional[str]:
+    """The installation-scoped GitHub token for whoever owns `repo`, or
+    None if they have no live installation. ALWAYS use this (never an
+    unauthenticated client) for GitHub API calls against a connected
+    repo -- an unauthenticated client shares GitHub's 60-request/hour
+    public rate limit across every visitor on earth, which a handful of
+    dashboard page loads can exhaust in minutes. The installation token
+    gets its own 5000/hour budget.
+    """
+    user = session.query(User).filter_by(id=repo.user_id).one_or_none()
+    if user is None or not user.github_app_installation_id:
+        return None
+    from sera.github_integration.github_app import get_installation_token
+
+    return get_installation_token(user.github_app_installation_id)
+
+
 class NotFoundOrNotOwned(Exception):
     """Raised when a repo/incident id doesn't exist OR belongs to a
     different user. Deliberately the same error either way -- telling a
