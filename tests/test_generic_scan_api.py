@@ -117,6 +117,44 @@ def test_ingest_first_result_bootstraps_baseline(client):
     assert resp.json()["status"] == "baseline_set"
 
 
+def test_bootstrap_call_still_records_a_scan_result_for_the_graph(client):
+    # Otherwise the accuracy-over-time chart has no starting point until a
+    # SECOND result ever arrives, which looks like data went missing.
+    user_id, repo_id = _connect_repo(client)
+    client.post(
+        f"/tenant/repos/{repo_id}/ingest-scan-result",
+        params={"user_id": user_id},
+        json=_generic_payload(0.95),
+    )
+    scans = client.get(f"/tenant/repos/{repo_id}/scans", params={"user_id": user_id}).json()
+    assert len(scans) == 1
+    assert scans[0]["status"] == "healthy"
+
+
+def test_incident_scan_stores_observed_shape(client):
+    user_id, repo_id = _connect_repo(client)
+    client.post(
+        f"/tenant/repos/{repo_id}/ingest-scan-result",
+        params={"user_id": user_id},
+        json=_generic_payload(0.95, n=100),
+    )
+    client.post(
+        f"/tenant/repos/{repo_id}/ingest-scan-result",
+        params={"user_id": user_id},
+        json=_generic_payload(0.5, n=100),
+    )
+    scans = client.get(f"/tenant/repos/{repo_id}/scans", params={"user_id": user_id}).json()
+    import json as json_mod
+
+    summary = json_mod.loads(scans[0]["summary_json"])
+    assert "observed_shape" in summary
+    assert set(summary["observed_shape"].keys()) == {
+        "broadness",
+        "subset_concentration",
+        "confident_but_wrong",
+    }
+
+
 def test_ingest_regression_produces_incident(client):
     user_id, repo_id = _connect_repo(client)
     client.post(

@@ -218,12 +218,6 @@ export const api = {
       `/tenant/repos/${repoId}/badge-markdown?user_id=${userId}&base_url=${encodeURIComponent(BACKEND_ORIGIN)}`
     ),
 
-  runDemoScan: (userId: number, repoId: number, condition: string | null, seed = 0) =>
-    request<{ scan_id: number; status: string; baseline_accuracy: number; regressed_accuracy: number }>(
-      `/tenant/repos/${repoId}/scan?user_id=${userId}`,
-      { method: "POST", body: JSON.stringify({ condition, seed }) }
-    ),
-
   reportToken: (userId: number, repoId: number) =>
     request<{ report_token: string; report_url: string }>(
       `/tenant/repos/${repoId}/report-token?user_id=${userId}&base_url=${encodeURIComponent(BACKEND_ORIGIN)}`

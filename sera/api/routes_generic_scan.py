@@ -123,14 +123,36 @@ def ingest_scan_result(repo_id: int, user_id: int, result: GenericScanResult):
         if repo.generic_baseline_snapshot_json is None:
             repo.generic_baseline_snapshot_json = json.dumps(result.model_dump())
             repo.last_scan_at = datetime.utcnow()
+            # Record the bootstrap itself as a healthy scan too -- otherwise
+            # the accuracy-over-time graph has no starting point until a
+            # SECOND result ever arrives, which looks like data went missing.
+            run = record_run(session, _placeholder_config(), current_metrics, seed=None, is_baseline=True)
+            scan = ScanResult(
+                repo_id=repo.id,
+                run_id=run.id,
+                status="healthy",
+                summary_json=json.dumps(
+                    {
+                        "task_type": result.task_type,
+                        "primary_metric_name": result.primary_metric_name,
+                        "baseline_metric": result.primary_metric,
+                        "current_metric": result.primary_metric,
+                        "metric_drop": 0.0,
+                        "secondary_metrics": result.secondary_metrics,
+                        "candidates": [],
+                    }
+                ),
+            )
+            session.add(scan)
             session.flush()
-            return {"status": "baseline_set", "primary_metric": result.primary_metric}
+            return {"status": "baseline_set", "primary_metric": result.primary_metric, "scan_id": scan.id}
 
         baseline_dict = json.loads(repo.generic_baseline_snapshot_json)
         baseline_result = GenericScanResult(**baseline_dict)
         baseline_metrics = _generic_to_run_metrics(baseline_result)
 
         drop = baseline_result.primary_metric - result.primary_metric
+        observed_shape = compute_shape_features(baseline_metrics, current_metrics)
 
         if drop < REGRESSION_THRESHOLD:
             status = "healthy"
@@ -138,7 +160,6 @@ def ingest_scan_result(repo_id: int, user_id: int, result: GenericScanResult):
             candidates_out = []
         else:
             status = "incident"
-            observed_shape = compute_shape_features(baseline_metrics, current_metrics)
             commits = _fetch_and_classify_commits(session, repo)
             ranked = rank_candidates(commits, observed_shape)
             candidates_out = [
@@ -168,6 +189,12 @@ def ingest_scan_result(repo_id: int, user_id: int, result: GenericScanResult):
                     "baseline_metric": baseline_result.primary_metric,
                     "current_metric": result.primary_metric,
                     "metric_drop": drop,
+                    "secondary_metrics": result.secondary_metrics,
+                    "observed_shape": {
+                        "broadness": observed_shape.broadness,
+                        "subset_concentration": observed_shape.subset_concentration,
+                        "confident_but_wrong": observed_shape.confident_but_wrong,
+                    },
                     "candidates": candidates_out,
                 }
             ),
