@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -133,7 +134,10 @@ def connect_repo(req: ConnectRepoRequest):
             return _repo_to_out(session, existing)
 
         repo = ConnectedRepo(
-            user_id=req.user_id, repo_full_name=req.repo_full_name, sera_yml_status="missing"
+            user_id=req.user_id,
+            repo_full_name=req.repo_full_name,
+            sera_yml_status="missing",
+            report_token=secrets.token_urlsafe(32),
         )
         session.add(repo)
         session.flush()
@@ -198,6 +202,41 @@ def badge_markdown(repo_id: int, user_id: int, base_url: str = "http://127.0.0.1
         owner, name = repo.repo_full_name.split("/", 1)
         badge_url = f"{base_url}/badge/{owner}/{name}"
         return {"markdown": f"![SERA status]({badge_url})", "badge_url": badge_url}
+
+
+@router.get("/repos/{repo_id}/report-token")
+def get_report_token(repo_id: int, user_id: int, base_url: str = "http://127.0.0.1:8000"):
+    """The secret the repo's OWN CI uses to report real scan results (see
+    sera/api/routes_report.py) -- owner-only, since it's a write credential
+    for that repo's incident history.
+    """
+    with session_scope() as session:
+        try:
+            repo = tenancy.get_owned_repo(session, user_id, repo_id)
+        except tenancy.NotFoundOrNotOwned:
+            raise HTTPException(404, "repo not found")
+        if not repo.report_token:
+            repo.report_token = secrets.token_urlsafe(32)
+            session.flush()
+        return {
+            "report_token": repo.report_token,
+            "report_url": f"{base_url}/report/{repo_id}/scan",
+        }
+
+
+@router.post("/repos/{repo_id}/report-token/regenerate")
+def regenerate_report_token(repo_id: int, user_id: int):
+    """Invalidates the old token -- e.g. if it leaked, or you're rotating
+    credentials in the connected repo's CI secrets.
+    """
+    with session_scope() as session:
+        try:
+            repo = tenancy.get_owned_repo(session, user_id, repo_id)
+        except tenancy.NotFoundOrNotOwned:
+            raise HTTPException(404, "repo not found")
+        repo.report_token = secrets.token_urlsafe(32)
+        session.flush()
+        return {"report_token": repo.report_token}
 
 
 class ScanRequest(BaseModel):

@@ -80,6 +80,15 @@ def get_installation_client(installation_id: int, config: Optional[GitHubAppConf
     return integration.get_github_for_installation(installation_id)
 
 
+def get_installation_token(installation_id: int, config: Optional[GitHubAppConfig] = None) -> str:
+    """Returns the raw, short-lived (~1hr) installation access token
+    string -- for call sites like fetch_commit_history that take a plain
+    `token: str` rather than a pre-built Github client.
+    """
+    integration = get_integration(config)
+    return integration.get_access_token(installation_id).token
+
+
 def verify_webhook_signature(payload_body: bytes, signature_header: Optional[str], config: Optional[GitHubAppConfig] = None) -> bool:
     """Verifies GitHub's `X-Hub-Signature-256` HMAC header. Always verify
     this before trusting ANY webhook payload -- otherwise anyone who

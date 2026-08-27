@@ -75,7 +75,11 @@ def build_manifest(app_name: str, webhook_url: str, redirect_url: str) -> dict:
             "pull_requests": "write",
             "metadata": "read",
         },
-        "default_events": ["installation", "installation_repositories", "pull_request"],
+        # "installation" and "installation_repositories" are NOT listed here
+        # on purpose: GitHub sends those automatically to every App with a
+        # webhook URL regardless of permissions, and rejects a manifest that
+        # tries to declare them explicitly ("Default events unsupported").
+        "default_events": ["pull_request"],
     }
 
 

@@ -202,6 +202,11 @@ export const api = {
       `/tenant/repos/${repoId}/scan?user_id=${userId}`,
       { method: "POST", body: JSON.stringify({ condition, seed }) }
     ),
+
+  reportToken: (userId: number, repoId: number) =>
+    request<{ report_token: string; report_url: string }>(
+      `/tenant/repos/${repoId}/report-token?user_id=${userId}&base_url=${encodeURIComponent(BACKEND_ORIGIN)}`
+    ),
 };
 
 export const RESULTS_STATIC_BASE = `${BACKEND_ORIGIN}/results-static`;

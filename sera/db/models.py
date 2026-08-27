@@ -137,6 +137,22 @@ class ConnectedRepo(Base):
     connected_at = Column(DateTime, default=utcnow)
     last_scan_at = Column(DateTime, nullable=True)
 
+    # Push-based real-code scanning (see sera/api/routes_report.py): SERA
+    # never clones or executes this repo's own code -- that would mean
+    # running an arbitrary stranger's code on our infrastructure, a real
+    # security liability, not just missing work. Instead the repo's own
+    # CI runs its own canary_eval.py (already sandboxed by GitHub Actions,
+    # already has the repo's real dependencies) and POSTs the result here,
+    # authenticated by this per-repo secret token -- never the GitHub
+    # installation token, which would be far too broad a credential to
+    # embed in a repo's CI secrets.
+    report_token = Column(String, nullable=True, unique=True)
+    # Last known-good canary result from that real reporting pipeline,
+    # JSON-encoded (accuracy/mean_confidence/mean_entropy/per_sample_*) --
+    # the baseline every new report is diffed against. Bootstrapped by the
+    # first report ever received for this repo.
+    baseline_snapshot_json = Column(Text, nullable=True)
+
     __table_args__ = (UniqueConstraint("user_id", "repo_full_name", name="uq_user_repo"),)
 
     user = relationship("User", back_populates="connected_repos")
