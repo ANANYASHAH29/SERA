@@ -47,9 +47,15 @@ def run_canary(entrypoint: str) -> dict:
 
 
 def report(dashboard_url: str, repo_id: str, token: str, result: dict) -> dict:
+    # Two schemas share this one endpoint contract: the CV-style one
+    # (accuracy/mean_confidence/...) posts to /scan, the generic
+    # task-agnostic one (task_type/primary_metric/...) posts to
+    # /generic-scan. Auto-detect by which keys are actually present so
+    # this script works unmodified for either kind of canary_eval.py.
+    path = "generic-scan" if "task_type" in result else "scan"
     body = json.dumps({**result, "report_token": token}).encode()
     req = urllib.request.Request(
-        f"{dashboard_url.rstrip('/')}/report/{repo_id}/scan",
+        f"{dashboard_url.rstrip('/')}/report/{repo_id}/{path}",
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -73,7 +79,10 @@ def main():
     entrypoint = load_canary_entrypoint()
     print(f"running canary entrypoint: {entrypoint}")
     result = run_canary(entrypoint)
-    print(f"accuracy={result.get('accuracy')}  mean_confidence={result.get('mean_confidence')}")
+    if "task_type" in result:
+        print(f"{result.get('primary_metric_name')}={result.get('primary_metric')}")
+    else:
+        print(f"accuracy={result.get('accuracy')}  mean_confidence={result.get('mean_confidence')}")
 
     response = report(dashboard_url, repo_id, token, result)
     print(f"reported to SERA: {response}")

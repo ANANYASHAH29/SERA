@@ -38,6 +38,7 @@ from sera.db.session import session_scope
 from sera.github_integration.diff_analyzer import classify_commits
 from sera.github_integration.fetch_commits import fetch_commit_history
 from sera.method.evidence_signals import compute_shape_features
+from sera.method.generic_scan import GenericScanResult, process_generic_scan_result
 from sera.method.memory import record_run
 from sera.method.ranker import rank_candidates
 from sera.repo_config import load_repo_config_from_github
@@ -152,6 +153,30 @@ def report_scan(repo_id: int, req: ReportScanRequest):
         session.flush()
 
         return {"status": status, "scan_id": scan.id, "accuracy_drop": drop}
+
+
+class GenericReportRequest(GenericScanResult):
+    report_token: str
+
+
+@router.post("/{repo_id}/generic-scan")
+def report_generic_scan(repo_id: int, req: GenericReportRequest):
+    """Same token-auth contract as /scan above, for the generic (e.g.
+    sklearn/tabular) schema instead of the CV-style one -- so a repo
+    using scripts/report_scan.py's auto-detected schema can report
+    through CI the exact same way a CV pipeline does. Shares its
+    processing logic with the dashboard's manual-paste endpoint via
+    sera.method.generic_scan, so a result behaves identically either way.
+    """
+    with session_scope() as session:
+        repo = session.query(ConnectedRepo).filter_by(id=repo_id).one_or_none()
+        if repo is None or not repo.report_token or not hmac.compare_digest(
+            repo.report_token, req.report_token
+        ):
+            raise HTTPException(404, "not found")
+
+        result = GenericScanResult(**req.model_dump(exclude={"report_token"}))
+        return process_generic_scan_result(session, repo, result, _fetch_and_classify_commits)
 
 
 def _fetch_and_classify_commits(session, repo: ConnectedRepo):

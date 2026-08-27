@@ -174,6 +174,55 @@ def test_ingest_regression_produces_incident(client):
     assert repos[0]["health_status"] == "incident"
 
 
+def test_ingest_rejects_n_samples_mismatch(client):
+    # Regression test: a payload claiming n_samples=114 but only providing
+    # 10 actual per_sample_scores used to be silently accepted, get stored
+    # as the rolling baseline, and then crash the NEXT ingestion with a
+    # numpy broadcast error the moment someone submitted a real-length
+    # result to compare against it. Caught while demoing against a real
+    # repo -- see GenericScanResult._check_sample_count_consistency.
+    user_id, repo_id = _connect_repo(client)
+    bad_payload = _generic_payload(0.9, n=10)
+    bad_payload["n_samples"] = 114  # inconsistent with the 10 actual scores
+    resp = client.post(
+        f"/tenant/repos/{repo_id}/ingest-scan-result", params={"user_id": user_id}, json=bad_payload
+    )
+    assert resp.status_code == 422
+
+
+def test_ingest_recovers_from_a_previously_corrupted_stored_baseline(client):
+    # Simulates a baseline that got corrupted before the validator above
+    # existed (this repo's actual state during the real demo). The fix
+    # must degrade to "re-bootstrap", not crash the whole endpoint.
+    import json as json_mod
+
+    from sera.db.models import ConnectedRepo
+    from sera.db.session import session_scope
+
+    user_id, repo_id = _connect_repo(client)
+    with session_scope() as session:
+        repo = session.query(ConnectedRepo).filter_by(id=repo_id).one()
+        repo.generic_baseline_snapshot_json = json_mod.dumps(
+            {
+                "task_type": "classification",
+                "primary_metric": 0.9,
+                "primary_metric_name": "accuracy",
+                "secondary_metrics": {"mean_confidence": 0.9, "mean_entropy": 0.1},
+                "per_sample_scores": [1] * 10,  # inconsistent with n_samples below
+                "n_samples": 114,
+                "canary_set_hash": "corrupt",
+            }
+        )
+
+    resp = client.post(
+        f"/tenant/repos/{repo_id}/ingest-scan-result",
+        params={"user_id": user_id},
+        json=_generic_payload(0.95, n=114),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "baseline_set"  # re-bootstrapped, didn't crash
+
+
 def test_ingest_rejects_cross_tenant_repo(client):
     alice_id, alice_repo_id = _connect_repo(client, "alice")
     bob_id, _ = _connect_repo(client, "bob")

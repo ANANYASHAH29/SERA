@@ -30,8 +30,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS is wide open here because this is a local research prototype talking
-# to a local Vite dev server on a different port -- not a public deployment.
+# CORS is wide open (any origin). Fine for a research prototype / demo
+# deployment where every write endpoint is already gated by a user_id,
+# report_token, or webhook signature -- CORS isn't acting as the real
+# access control here, those are. Tighten `allow_origins` to your actual
+# frontend's origin before this is anything more than a demo.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

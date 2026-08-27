@@ -1,5 +1,8 @@
 const BASE = "/api";
-const BACKEND_ORIGIN = "http://127.0.0.1:8000";
+// Override with VITE_BACKEND_ORIGIN in frontend/.env.local to point the
+// dashboard at a deployed backend instead of a local one (e.g. after
+// following the README's "Deploying the backend publicly" section).
+const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN ?? "http://127.0.0.1:8000";
 
 export interface RunSummary {
   run_id: number;

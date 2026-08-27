@@ -298,6 +298,67 @@ weight. See that test file's comments for why a single-candidate
 "provenance vs. drift" framing isn't actually the fair version of this
 claim, and what is.
 
+## Deploying the backend publicly (Render / Railway)
+
+The multi-tenant dashboard's GitHub Actions integration (`/report/{repo_id}/scan`,
+the CI reporter in `scripts/report_scan.py`) needs a backend GitHub's own
+runners can actually reach — `127.0.0.1` on your laptop isn't reachable
+from GitHub Actions, and tunneling your local machine means exposing a
+process holding your GitHub App's private key to the public internet,
+which is a real, not cosmetic, risk. Deploying to a small always-on host
+avoids both problems.
+
+**Required environment variables** (set these in the host's dashboard,
+never commit them):
+
+| Variable | Required for |
+|---|---|
+| `GITHUB_APP_ID` | multi-tenant App auth |
+| `GITHUB_APP_PRIVATE_KEY` | multi-tenant App auth (paste the full multi-line PEM directly — Render/Railway's env var UI handles multi-line values natively, no special parsing needed) |
+| `GITHUB_APP_SLUG` | `/tenant/install-url` |
+| `GITHUB_WEBHOOK_SECRET` | webhook signature verification |
+| `GITHUB_TOKEN` | optional — only the single-tenant scripts use it, not the dashboard |
+
+All of these are read via plain `os.environ.get(...)` (see
+`sera/github_integration/github_app.py`) — nothing in the codebase
+hardcodes a secret anywhere; `scripts/register_github_app.py` writes
+discovered credentials to a local, gitignored `.env.github_app` for your
+own dev machine only, which the deployed host never sees or needs.
+
+**Steps (Render, free tier — Railway is nearly identical):**
+
+1. Push this repo to its own GitHub repo if it isn't already (a private
+   repo is fine — Render/Railway both support connecting private repos).
+2. On Render: **New → Web Service** → connect that repo.
+3. Runtime: Python 3. Build command: `pip install -r requirements.txt`.
+   Start command: leave blank — Render auto-detects the `Procfile` at the
+   repo root (`web: uvicorn sera.api.main:app --host 0.0.0.0 --port $PORT`).
+4. Under **Environment**, add the five variables from the table above.
+5. Deploy. You'll get a URL like `https://sera-demo.onrender.com` — verify
+   with `curl https://sera-demo.onrender.com/health` before wiring
+   anything else to it.
+6. Point `demo-fraud-model`'s `SERA_DASHBOARD_URL` GitHub Actions secret
+   at this URL instead of `http://127.0.0.1:8000`, and update the
+   frontend's backend origin (`frontend/src/api.ts`'s `BACKEND_ORIGIN`,
+   and `frontend/vite.config.ts`'s proxy target) if you want the local
+   dashboard UI to read from the deployed backend instead of a local one.
+
+**Known limitations of the free tier, stated honestly:**
+- **SQLite (`sera_state.db`) is not guaranteed to persist across
+  redeploys or restarts** on free-tier ephemeral disks — fine for a demo
+  session, not for long-term storage. A real deployment would point
+  `sera.config.DB_PATH` at a persistent disk or swap to a hosted Postgres.
+- **First build installs `torch`/`torchvision`** (needed by the CIFAR-10
+  reference pipeline elsewhere in the app, even though the sklearn/tabular
+  CI-reporting path in this demo never calls them) — expect a slower first
+  build, not a failure.
+- **The CIFAR-10 reference-pipeline routes will error on a fresh deploy**
+  (`/tenant/repos/{id}/scan`, the dark-mode `/demo` Live Diagnosis flow)
+  unless you also run `scripts/train_baseline_model.py` in that
+  environment — a large download + CPU training job, not something to do
+  on a free-tier demo deploy. The multi-tenant `/report` and
+  `/ingest-scan-result` paths this demo actually uses don't need it.
+
 ## Running experiments
 
 ```bash
