@@ -5,19 +5,29 @@ sera.method.tenancy so one user can never see another's data.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from sera.conditions.registry import ALL_CATEGORIES, CONFIG_CONDITIONS, DRIFT_CONDITION, DRIFT_LABEL
+from sera.config import baseline_config
 from sera.db.models import ConnectedRepo, ScanResult, User
 from sera.db.session import session_scope
+from sera.github_integration.diff_analyzer import classify_commits
 from sera.github_integration.github_app import (
     GitHubAppNotConfigured,
     get_installation_client,
 )
+from sera.github_integration.synthetic_history import generate_synthetic_history
 from sera.method import tenancy
+from sera.method.evidence_signals import compute_shape_features
+from sera.method.memory import record_run
+from sera.method.ranker import rank_candidates
+from sera.pipeline.ingestion import build_canary_set
+from sera.pipeline.runner import run_pipeline
 from sera.repo_config import generate_starter_template, load_repo_config_from_github
 
 router = APIRouter(prefix="/tenant", tags=["tenant"])
@@ -188,3 +198,100 @@ def badge_markdown(repo_id: int, user_id: int, base_url: str = "http://127.0.0.1
         owner, name = repo.repo_full_name.split("/", 1)
         badge_url = f"{base_url}/badge/{owner}/{name}"
         return {"markdown": f"![SERA status]({badge_url})", "badge_url": badge_url}
+
+
+class ScanRequest(BaseModel):
+    # None -> healthy scan. Otherwise one of F1-F5/D1 -- injected against
+    # SERA's own reference CIFAR-10 pipeline, NOT the tenant's actual repo
+    # code. Actually cloning and executing an arbitrary connected repo's
+    # own canary entrypoint per scan needs sandboxed execution and a
+    # background job queue, neither of which exist in this build (see the
+    # same documented boundary in routes_webhook._handle_pull_request_event).
+    # This still exercises the real diagnostic engine end-to-end -- real
+    # inference, real ranking -- it just isn't scanning the tenant's own
+    # code. Labeled as such in the dashboard UI, not silently implied.
+    condition: Optional[str] = None
+    seed: int = 0
+
+
+@router.post("/repos/{repo_id}/scan")
+def run_demo_scan(repo_id: int, user_id: int, req: ScanRequest):
+    import datetime as dt
+
+    if req.condition is not None and req.condition not in ALL_CATEGORIES:
+        raise HTTPException(400, f"unknown condition {req.condition!r}")
+
+    with session_scope() as session:
+        try:
+            repo = tenancy.get_owned_repo(session, user_id, repo_id)
+        except tenancy.NotFoundOrNotOwned:
+            raise HTTPException(404, "repo not found")
+
+        base_config = baseline_config()
+        canary = build_canary_set()
+        baseline_metrics = run_pipeline(base_config, canary, corruption_seed=req.seed)
+
+        if req.condition is None:
+            regressed_config, regressed_batch = base_config, canary
+        elif req.condition == DRIFT_LABEL:
+            from dataclasses import replace
+
+            shifted = DRIFT_CONDITION.apply_to_images(canary.images, severity=1.0, seed=req.seed + 900)
+            regressed_config, regressed_batch = base_config, replace(canary, images=shifted)
+        else:
+            regressed_config = CONFIG_CONDITIONS[req.condition].apply(base_config, severity=1.0)
+            regressed_batch = canary
+        regressed_metrics = run_pipeline(regressed_config, regressed_batch, corruption_seed=req.seed)
+
+        drop = baseline_metrics.accuracy - regressed_metrics.accuracy
+        if drop < 0.05:
+            status = "healthy"
+            candidates_out = []
+        else:
+            status = "incident"
+            observed_shape = compute_shape_features(baseline_metrics, regressed_metrics)
+            guilty_category = None if req.condition == DRIFT_LABEL else req.condition
+            commits = generate_synthetic_history(
+                num_harmless=4, guilty_category=guilty_category, seed=req.seed
+            )
+            classify_commits(commits)
+            ranked = rank_candidates(commits, observed_shape)
+            candidates_out = [
+                {
+                    "rank": i,
+                    "candidate_id": c.candidate_id,
+                    "kind": c.kind,
+                    "hypothesized_category": c.hypothesized_category,
+                    "provenance_score": c.provenance_score,
+                    "shape_match_score": c.shape_match_score,
+                    "combined_score": c.combined_score,
+                    "commit_sha": c.commit.sha if c.commit else None,
+                    "commit_message": c.commit.message if c.commit else None,
+                }
+                for i, c in enumerate(ranked)
+            ]
+
+        run = record_run(session, regressed_config, regressed_metrics, seed=req.seed, is_baseline=False)
+        scan = ScanResult(
+            repo_id=repo.id,
+            run_id=run.id,
+            status=status,
+            summary_json=json.dumps(
+                {
+                    "baseline_accuracy": baseline_metrics.accuracy,
+                    "regressed_accuracy": regressed_metrics.accuracy,
+                    "accuracy_drop": drop,
+                    "candidates": candidates_out,
+                }
+            ),
+        )
+        session.add(scan)
+        repo.last_scan_at = dt.datetime.utcnow()
+        session.flush()
+
+        return {
+            "scan_id": scan.id,
+            "status": status,
+            "baseline_accuracy": baseline_metrics.accuracy,
+            "regressed_accuracy": regressed_metrics.accuracy,
+        }
