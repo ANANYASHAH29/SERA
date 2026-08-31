@@ -141,7 +141,8 @@ def connect_repo(req: ConnectRepoRequest):
         session.flush()
 
         try:
-            config = load_repo_config_from_github(req.repo_full_name, ref="HEAD")
+            token = tenancy.get_installation_token_for_repo(session, repo)
+            config = load_repo_config_from_github(req.repo_full_name, ref="HEAD", token=token)
             repo.sera_yml_status = "present" if config else "missing"
         except Exception:
             repo.sera_yml_status = "missing"  # can't reach the repo yet -- not fatal to connecting
