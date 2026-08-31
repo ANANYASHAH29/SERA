@@ -6,7 +6,7 @@ import { useSession } from "../session";
 import { RankingTable } from "../components/RankingTable";
 import { AccuracyChart } from "../components/AccuracyChart";
 import { ErrorBanner } from "../components/StepCard";
-import { describeLikelyCause, parseScanSummary, timeAgo } from "../scanSummary";
+import { describeLikelyCause, describeWhatChanged, parseScanSummary, parseValidation, sourceLabel, timeAgo } from "../scanSummary";
 
 const STATUS_PILL: Record<string, string> = {
   healthy: "bg-emerald-100 text-emerald-700",
@@ -89,6 +89,8 @@ export function RepoDetailPage() {
 
   const suspectCommit = latestSummary?.candidates[0];
   const likelyCause = status === "incident" && latestSummary ? describeLikelyCause(latestSummary) : null;
+  const whatChanged = status === "incident" && latestSummary ? describeWhatChanged(latestSummary) : null;
+  const validation = status === "incident" ? parseValidation(latest.validation_json) : null;
   // Only meaningful as an explanation for a real regression -- a healthy
   // scan can have a nonzero confident_but_wrong signal from noise alone
   // (a few samples flipped without moving overall accuracy past the
@@ -136,7 +138,7 @@ export function RepoDetailPage() {
 
         <MetricCard label="last scan">
           <div className="text-2xl font-semibold text-slate-800">{timeAgo(latest.created_at)}</div>
-          <div className="text-xs text-slate-400">manual / paste-in</div>
+          <div className="text-xs text-slate-400">{sourceLabel(latestSummary?.source ?? "manual")}</div>
         </MetricCard>
 
         <MetricCard label="suspect commit">
@@ -145,7 +147,9 @@ export function RepoDetailPage() {
               <div className="font-mono text-2xl font-semibold text-slate-800">
                 {suspectCommit.commit_sha?.slice(0, 7)}
               </div>
-              <div className="text-xs text-slate-400">{suspectCommit.hypothesized_category}</div>
+              <div className="text-xs text-slate-400">
+                {suspectCommit.stage_label ?? suspectCommit.hypothesized_category}
+              </div>
             </>
           ) : (
             <div className="text-2xl font-semibold text-slate-400">—</div>
@@ -164,6 +168,97 @@ export function RepoDetailPage() {
         <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4">
           <h2 className="mb-1 text-sm font-semibold text-red-900">{likelyCause.title}</h2>
           <p className="text-sm text-red-700">{likelyCause.body}</p>
+        </div>
+      )}
+
+      {whatChanged && (
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">What changed</h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <div className="text-slate-500">Commit</div>
+            <div className="font-mono text-slate-800">
+              {whatChanged.commitSha.slice(0, 10)}
+              {whatChanged.commitMessage && (
+                <span className="ml-2 font-sans text-slate-500">— {whatChanged.commitMessage}</span>
+              )}
+            </div>
+            <div className="text-slate-500">Pipeline stage</div>
+            <div className="text-slate-800">{whatChanged.stageLabel ?? "—"}</div>
+          </div>
+
+          <div className="mt-3 text-sm">
+            <div className="mb-1 text-slate-500">Modified</div>
+            <ul className="space-y-2">
+              {whatChanged.files.map((f) => (
+                <li key={f.path}>
+                  <div className="font-mono text-slate-800">• {f.path}</div>
+                  {f.patch ? (
+                    <pre className="mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-xs text-slate-700">
+                      {f.patch}
+                    </pre>
+                  ) : (
+                    <div className="ml-3 text-xs text-slate-400">binary artifact — no text diff available</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {status === "incident" && whatChanged && (
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Validation</h2>
+          {validation ? (
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+              <div className="text-slate-500">Intervention</div>
+              <div className="text-slate-800">
+                Restore {validation.files_reverted.join(", ")} to its state before commit{" "}
+                <span className="font-mono">{whatChanged.commitSha.slice(0, 10)}</span>
+              </div>
+              <div className="text-slate-500">Before intervention</div>
+              <div className="text-slate-800">
+                {validation.before_metric != null ? `${(validation.before_metric * 100).toFixed(1)}%` : "—"}
+              </div>
+              <div className="text-slate-500">After intervention</div>
+              <div className="text-slate-800">{(validation.after_metric * 100).toFixed(1)}%</div>
+              <div className="col-span-2 mt-1">
+                {validation.recovered ? (
+                  <span className="font-medium text-emerald-600">
+                    ✓ Degradation recovered — cause validated
+                  </span>
+                ) : (
+                  <span className="font-medium text-amber-600">
+                    ✗ Accuracy did not recover — this commit alone may not fully explain the regression
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">
+              Waiting on the tenant's CI to report the controlled-intervention result (revert the suspect
+              files, re-run the canary, and confirm whether accuracy recovers).
+            </p>
+          )}
+        </div>
+      )}
+
+      {status === "incident" && whatChanged && (
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Recovery &amp; feedback</h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <div className="text-slate-500">Recommended action</div>
+            <div className="text-slate-800">
+              {validation?.recovered
+                ? `Revert ${validation.files_reverted.join(", ")} in commit ${whatChanged.commitSha.slice(0, 10)}`
+                : validation
+                  ? "Reverting this commit alone didn't recover accuracy — keep investigating the next-ranked candidate"
+                  : `Review ${whatChanged.files.map((f) => f.path).join(", ")} in commit ${whatChanged.commitSha.slice(0, 10)}`}
+            </div>
+            <div className="text-slate-500">Developer</div>
+            <div className="text-slate-800">Review &amp; apply</div>
+          </div>
+          <div className="mt-2 text-xs text-emerald-600">Incident stored ✓ (scan #{latest.id})</div>
         </div>
       )}
 

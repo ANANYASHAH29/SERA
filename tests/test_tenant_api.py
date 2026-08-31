@@ -15,6 +15,11 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(session_mod, "_default_engine", None)
     monkeypatch.setattr(session_mod, "_default_session_factory", None)
     monkeypatch.setattr(session_mod, "DB_PATH", db_path)
+    # _seed_user's fake installation_id=111 doesn't correspond to a real
+    # GitHub App installation -- without this, connect_repo's real
+    # get_installation_token_for_repo call attempts genuine network I/O
+    # against that bogus id and burns minutes retrying before giving up.
+    monkeypatch.setattr("sera.method.tenancy.get_installation_token_for_repo", lambda session, repo: None)
 
     from sera.api.main import app
 
@@ -54,7 +59,7 @@ def test_list_repos_empty_for_new_user(client, monkeypatch):
 def test_connect_repo_creates_row_with_sera_yml_status(client, monkeypatch):
     monkeypatch.setattr(
         "sera.api.routes_tenant.load_repo_config_from_github",
-        lambda repo_full_name, ref: object(),  # truthy -> "present"
+        lambda repo_full_name, ref, token=None: object(),  # truthy -> "present"
     )
     user_id = _seed_user(client, monkeypatch)
 
@@ -70,7 +75,7 @@ def test_connect_repo_creates_row_with_sera_yml_status(client, monkeypatch):
 def test_connect_repo_marks_missing_sera_yml_when_absent(client, monkeypatch):
     monkeypatch.setattr(
         "sera.api.routes_tenant.load_repo_config_from_github",
-        lambda repo_full_name, ref: None,
+        lambda repo_full_name, ref, token=None: None,
     )
     user_id = _seed_user(client, monkeypatch)
     resp = client.post("/tenant/repos", json={"user_id": user_id, "repo_full_name": "alice/no-config-repo"})
@@ -79,7 +84,7 @@ def test_connect_repo_marks_missing_sera_yml_when_absent(client, monkeypatch):
 
 def test_connect_repo_is_idempotent(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     user_id = _seed_user(client, monkeypatch)
     client.post("/tenant/repos", json={"user_id": user_id, "repo_full_name": "alice/repo"})
@@ -91,7 +96,7 @@ def test_connect_repo_is_idempotent(client, monkeypatch):
 
 def test_disconnect_rejects_cross_tenant_repo(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     alice_id = _seed_user(client, monkeypatch, "alice", 111)
     bob_id = _seed_user(client, monkeypatch, "bob", 222)
@@ -108,7 +113,7 @@ def test_disconnect_rejects_cross_tenant_repo(client, monkeypatch):
 
 def test_disconnect_own_repo_succeeds(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     user_id = _seed_user(client, monkeypatch)
     connect_resp = client.post("/tenant/repos", json={"user_id": user_id, "repo_full_name": "alice/repo"})
@@ -121,7 +126,7 @@ def test_disconnect_own_repo_succeeds(client, monkeypatch):
 
 def test_sera_yml_template_rejects_cross_tenant_access(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     alice_id = _seed_user(client, monkeypatch, "alice", 111)
     bob_id = _seed_user(client, monkeypatch, "bob", 222)
@@ -134,7 +139,7 @@ def test_sera_yml_template_rejects_cross_tenant_access(client, monkeypatch):
 
 def test_sera_yml_template_returns_starter_template(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     user_id = _seed_user(client, monkeypatch)
     connect_resp = client.post("/tenant/repos", json={"user_id": user_id, "repo_full_name": "alice/repo"})
@@ -147,7 +152,7 @@ def test_sera_yml_template_returns_starter_template(client, monkeypatch):
 
 def test_badge_markdown_uses_repo_owner_and_name(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     user_id = _seed_user(client, monkeypatch)
     connect_resp = client.post("/tenant/repos", json={"user_id": user_id, "repo_full_name": "alice/cv-repo"})
@@ -167,7 +172,7 @@ def test_badge_endpoint_returns_svg_for_unconnected_repo(client):
 
 def test_badge_endpoint_reflects_incident_status(client, monkeypatch):
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
     from sera.db.models import ScanResult
     from sera.db.session import session_scope

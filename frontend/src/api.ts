@@ -25,12 +25,14 @@ export interface RankedCandidateOut {
   candidate_id: string;
   kind: "commit" | "drift";
   hypothesized_category: string | null;
+  stage_label: string | null;
   provenance_score: number;
   shape_match_score: number;
   combined_score: number;
   commit_sha: string | null;
   commit_message: string | null;
   commit_files: string[] | null;
+  commit_file_patches: Record<string, string | null> | null;
 }
 
 export interface RankingResponse {
@@ -101,7 +103,23 @@ export interface ScanResultOut {
   run_id: number | null;
   status: string;
   summary_json: string | null;
+  validation_json: string | null;
   created_at: string;
+}
+
+/** The controlled-intervention result, once a repo's own CI has reverted
+ * the suspect commit's files and re-run the canary -- see
+ * sera.method.validation.record_validation. Null on a ScanResult until
+ * (and unless) that follow-up report arrives.
+ */
+export interface InterventionResult {
+  files_reverted: string[];
+  before_metric: number | null;
+  after_metric: number;
+  baseline_metric: number | null;
+  recovered: boolean;
+  suspect_commit_sha: string | null;
+  stage_label: string | null;
 }
 
 export interface ScanSignalsOut {

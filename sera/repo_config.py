@@ -43,6 +43,10 @@ class RepoConfig:
     risk_patterns: Dict[str, List[str]] = field(default_factory=dict)
     canary_entrypoint: Optional[str] = None
     source: Optional[str] = None  # "path:<p>" or "github:<repo>@<ref>"
+    # normalized category ("F5") -> the repo owner's own descriptive suffix,
+    # prettified ("F5_checkpoint" -> "Checkpoint") -- lets the dashboard
+    # show a real pipeline-stage name instead of a bare risk code.
+    category_labels: Dict[str, str] = field(default_factory=dict)
 
 
 def _normalize_category_key(key: str) -> Optional[str]:
@@ -50,11 +54,42 @@ def _normalize_category_key(key: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def _prettify_suffix(key: str, canonical: str) -> Optional[str]:
+    suffix = str(key).strip()[len(canonical):].lstrip("_-")
+    if not suffix:
+        return None
+    return suffix.replace("_", " ").replace("-", " ").strip().capitalize()
+
+
+# Fallback labels for SERA's own CIFAR reference pipeline, used only when a
+# repo has no .sera.yml of its own to supply descriptive suffixes.
+BUILTIN_STAGE_LABELS = {
+    "F1": "Resize",
+    "F2": "Channel order",
+    "F3": "Normalization",
+    "F4": "Corruption filter",
+    "F5": "Checkpoint",
+    "D1": "Data drift",
+}
+
+
+def stage_label(category: str, repo_config: Optional[RepoConfig] = None) -> str:
+    """Human-readable pipeline-stage name for a risk category code, for
+    display (e.g. in a "what changed" panel) -- never used for matching.
+    """
+    if repo_config is not None:
+        label = repo_config.category_labels.get(category)
+        if label:
+            return label
+    return BUILTIN_STAGE_LABELS.get(category, category)
+
+
 def _parse_config_text(text: str, source: Optional[str] = None) -> RepoConfig:
     data = yaml.safe_load(text) or {}
     raw_categories = data.get("risk_categories", {}) or {}
 
     risk_patterns: Dict[str, List[str]] = {}
+    category_labels: Dict[str, str] = {}
     for key, patterns in raw_categories.items():
         canonical = _normalize_category_key(key)
         if canonical is None:
@@ -62,12 +97,16 @@ def _parse_config_text(text: str, source: Optional[str] = None) -> RepoConfig:
         if isinstance(patterns, str):
             patterns = [patterns]
         risk_patterns.setdefault(canonical, []).extend(patterns)
+        label = _prettify_suffix(key, canonical)
+        if label and canonical not in category_labels:
+            category_labels[canonical] = label
 
     canary_cfg = data.get("canary", {}) or {}
     return RepoConfig(
         risk_patterns=risk_patterns,
         canary_entrypoint=canary_cfg.get("entrypoint"),
         source=source,
+        category_labels=category_labels,
     )
 
 

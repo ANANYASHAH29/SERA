@@ -72,7 +72,9 @@ export function RankingTable({
                   )}
                   {isTop && <span className={`ml-2 rounded px-1.5 py-0.5 ${topBadge}`}>top suspect</span>}
                 </td>
-                <td className={`py-1.5 pr-3 ${categoryClass}`}>{c.hypothesized_category ?? "—"}</td>
+                <td className={`py-1.5 pr-3 ${categoryClass}`}>
+                  {c.stage_label ?? c.hypothesized_category ?? "—"}
+                </td>
                 <td className="py-1.5 pr-3">
                   <ScoreBar value={c.provenance_score} color="bg-sky-500" theme={theme} />
                 </td>

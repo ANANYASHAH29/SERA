@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
+from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -59,7 +61,7 @@ def _handle_installation_event(action: str, payload: dict) -> None:
             user = get_or_create_user(session, account_login, installation_id)
             repos = payload.get("repositories", [])
             for repo in repos:
-                _upsert_connected_repo(session, user.id, repo["full_name"])
+                _upsert_connected_repo(session, user.id, repo["full_name"], installation_id)
         elif action == "deleted":
             user = get_or_create_user(session, account_login, None)
             user.github_app_installation_id = None
@@ -77,7 +79,7 @@ def _handle_installation_repositories_event(action: str, payload: dict) -> None:
         user = get_or_create_user(session, account_login, installation_id)
         if action == "added":
             for repo in payload.get("repositories_added", []):
-                _upsert_connected_repo(session, user.id, repo["full_name"])
+                _upsert_connected_repo(session, user.id, repo["full_name"], installation_id)
         elif action == "removed":
             removed_names = {r["full_name"] for r in payload.get("repositories_removed", [])}
             for repo in (
@@ -107,7 +109,9 @@ def _handle_pull_request_event(action: str, payload: dict) -> None:
         )
 
 
-def _upsert_connected_repo(session, user_id: int, repo_full_name: str) -> ConnectedRepo:
+def _upsert_connected_repo(
+    session, user_id: int, repo_full_name: str, installation_id: Optional[int] = None
+) -> ConnectedRepo:
     existing = (
         session.query(ConnectedRepo)
         .filter_by(user_id=user_id, repo_full_name=repo_full_name)
@@ -115,7 +119,25 @@ def _upsert_connected_repo(session, user_id: int, repo_full_name: str) -> Connec
     )
     if existing:
         return existing
-    repo = ConnectedRepo(user_id=user_id, repo_full_name=repo_full_name, sera_yml_status="missing")
+
+    sera_yml_status = "missing"
+    if installation_id is not None:
+        try:
+            from sera.github_integration.github_app import get_installation_token
+            from sera.repo_config import load_repo_config_from_github
+
+            token = get_installation_token(installation_id)
+            config = load_repo_config_from_github(repo_full_name, ref="HEAD", token=token)
+            sera_yml_status = "present" if config else "missing"
+        except Exception:
+            pass  # webhook processing shouldn't fail just because this one check couldn't run
+
+    repo = ConnectedRepo(
+        user_id=user_id,
+        repo_full_name=repo_full_name,
+        sera_yml_status=sera_yml_status,
+        report_token=secrets.token_urlsafe(32),
+    )
     session.add(repo)
     session.flush()
     return repo

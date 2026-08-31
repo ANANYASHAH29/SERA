@@ -71,14 +71,28 @@ def _call_with_rate_limit_retry(
     raise last_error  # pragma: no cover — unreachable, loop always returns or raises
 
 
-def _files_changed(gh_commit) -> List[str]:
+MAX_PATCH_CHARS = 2000  # enough for a "what changed" preview, not a full diff viewer
+
+
+def _files_changed_and_patches(gh_commit):
+    """One API call (gh_commit.files, already fetched for the filename
+    list) also carries each file's unified diff text -- pull both out
+    together instead of fetching the same data twice.
+    """
     try:
         files = _call_with_rate_limit_retry(lambda: gh_commit.files or [])
-        return [f.filename for f in files]
     except (GithubException, UnknownObjectException):
         # commit disappeared (force-push) or diff too large to list -- no
         # evidence available for this commit, not a fatal error.
-        return []
+        return [], {}
+    filenames = [f.filename for f in files]
+    patches = {}
+    for f in files:
+        patch = getattr(f, "patch", None)
+        if patch and len(patch) > MAX_PATCH_CHARS:
+            patch = patch[:MAX_PATCH_CHARS] + "\n... (truncated)"
+        patches[f.filename] = patch  # None for binary files (e.g. a .pkl checkpoint)
+    return filenames, patches
 
 
 def _associated_pr(repo, gh_commit):
@@ -138,13 +152,15 @@ def fetch_commit_history(
         if fetch_pr_links:
             pr_number, pr_url = _associated_pr(repo, gh_commit)
 
+        files_changed, file_patches = _files_changed_and_patches(gh_commit)
         results.append(
             CommitInfo(
                 sha=gh_commit.sha,
                 message=message,
                 author=author_name,
                 timestamp=timestamp,
-                files_changed=_files_changed(gh_commit),
+                files_changed=files_changed,
+                file_patches=file_patches,
                 pr_number=pr_number,
                 pr_html_url=pr_url,
             )

@@ -31,6 +31,7 @@ from sera.method.evidence_signals import (
     ShapeFeatures,
     shape_similarity,
 )
+from sera.repo_config import RepoConfig, stage_label
 
 PROVENANCE_WEIGHT = 0.4
 SHAPE_WEIGHT = 0.6
@@ -47,17 +48,21 @@ class RankedCandidate:
     combined_score: float
     commit: Optional[CommitInfo] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self, repo_config: Optional[RepoConfig] = None) -> dict:
         return {
             "candidate_id": self.candidate_id,
             "kind": self.kind,
             "hypothesized_category": self.hypothesized_category,
+            "stage_label": stage_label(self.hypothesized_category, repo_config)
+            if self.hypothesized_category
+            else None,
             "provenance_score": self.provenance_score,
             "shape_match_score": self.shape_match_score,
             "combined_score": self.combined_score,
             "commit_sha": self.commit.sha if self.commit else None,
             "commit_message": self.commit.message if self.commit else None,
             "commit_files": self.commit.files_changed if self.commit else None,
+            "commit_file_patches": self.commit.file_patches if self.commit else None,
         }
 
 

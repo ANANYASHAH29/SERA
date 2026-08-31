@@ -10,7 +10,7 @@ from github import RateLimitExceededException, UnknownObjectException
 from sera.github_integration.fetch_commits import (
     MAX_BACKOFF_SECONDS,
     _call_with_rate_limit_retry,
-    _files_changed,
+    _files_changed_and_patches,
 )
 
 
@@ -81,4 +81,4 @@ def test_files_changed_degrades_gracefully_on_force_pushed_commit():
         def files(self):
             raise UnknownObjectException(404, {"message": "Not Found"}, {})
 
-    assert _files_changed(VanishedCommit()) == []
+    assert _files_changed_and_patches(VanishedCommit()) == ([], {})

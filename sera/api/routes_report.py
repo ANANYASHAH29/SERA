@@ -41,6 +41,7 @@ from sera.method.evidence_signals import compute_shape_features
 from sera.method.generic_scan import GenericScanResult, process_generic_scan_result
 from sera.method.memory import record_run
 from sera.method.ranker import rank_candidates
+from sera.method.validation import record_validation
 from sera.repo_config import load_repo_config_from_github
 
 router = APIRouter(prefix="/report", tags=["report"])
@@ -114,21 +115,10 @@ def report_scan(repo_id: int, req: ReportScanRequest):
         else:
             status = "incident"
             observed_shape = compute_shape_features(baseline_metrics, current_metrics)
-            commits = _fetch_and_classify_commits(session, repo)
+            commits, repo_config = _fetch_and_classify_commits(session, repo)
             ranked = rank_candidates(commits, observed_shape)
             candidates_out = [
-                {
-                    "rank": i,
-                    "candidate_id": c.candidate_id,
-                    "kind": c.kind,
-                    "hypothesized_category": c.hypothesized_category,
-                    "provenance_score": c.provenance_score,
-                    "shape_match_score": c.shape_match_score,
-                    "combined_score": c.combined_score,
-                    "commit_sha": c.commit.sha if c.commit else None,
-                    "commit_message": c.commit.message if c.commit else None,
-                }
-                for i, c in enumerate(ranked)
+                {"rank": i, **c.to_dict(repo_config)} for i, c in enumerate(ranked)
             ]
             # baseline deliberately NOT advanced on incident -- keeps
             # measuring against the last known-good state until it's
@@ -176,27 +166,63 @@ def report_generic_scan(repo_id: int, req: GenericReportRequest):
             raise HTTPException(404, "not found")
 
         result = GenericScanResult(**req.model_dump(exclude={"report_token"}))
-        return process_generic_scan_result(session, repo, result, _fetch_and_classify_commits)
+        return process_generic_scan_result(session, repo, result, _fetch_and_classify_commits, source="ci")
+
+
+class ValidateScanRequest(BaseModel):
+    report_token: str
+    scan_id: int
+    files_reverted: list[str]
+    after_metric: float
+
+
+@router.post("/{repo_id}/validate-scan")
+def report_validation(repo_id: int, req: ValidateScanRequest):
+    """Second, follow-up report for the controlled-intervention step: the
+    tenant's own CI reverted the suspect commit's flagged files, re-ran the
+    canary, and is reporting whether accuracy recovered. Same token-auth
+    contract as the scan-report endpoints above; entirely optional -- an
+    incident is complete evidence on its own, this just adds confirmation.
+    """
+    with session_scope() as session:
+        repo = session.query(ConnectedRepo).filter_by(id=repo_id).one_or_none()
+        if repo is None or not repo.report_token or not hmac.compare_digest(
+            repo.report_token, req.report_token
+        ):
+            raise HTTPException(404, "not found")
+
+        scan = session.query(ScanResult).filter_by(id=req.scan_id, repo_id=repo_id).one_or_none()
+        if scan is None:
+            raise HTTPException(404, "scan not found")
+
+        validation = record_validation(scan, req.files_reverted, req.after_metric)
+        session.flush()
+        return {"status": "validated", "recovered": validation["recovered"]}
 
 
 def _fetch_and_classify_commits(session, repo: ConnectedRepo):
+    """Returns (commits, repo_config) -- repo_config is surfaced alongside
+    the commits (not just used internally for classification) so callers
+    can render real pipeline-stage names for the risk categories it
+    declares, e.g. `.sera.yml`'s "F5_checkpoint" -> "Checkpoint".
+    """
     from sera.method.tenancy import get_installation_token_for_repo
 
     token = get_installation_token_for_repo(session, repo)
     if token is None:
-        return []  # no installation to fetch commits with -- rank against drift-only
+        return [], None  # no installation to fetch commits with -- rank against drift-only
     try:
         since = datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS)
         until = datetime.now(timezone.utc)
         commits = fetch_commit_history(repo.repo_full_name, since=since, until=until, token=token)
         repo_config = load_repo_config_from_github(repo.repo_full_name, ref="HEAD", token=token)
         classify_commits(commits, repo_config=repo_config)
-        return commits
+        return commits, repo_config
     except Exception:
         # commit history is supporting evidence, not required to detect
         # the regression at all -- degrade to a drift-only ranking rather
         # than failing the whole report.
-        return []
+        return [], None
 
 
 def _placeholder_config():

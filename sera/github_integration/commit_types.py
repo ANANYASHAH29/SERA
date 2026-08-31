@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -20,6 +20,11 @@ class CommitInfo:
     pr_html_url: Optional[str] = None
     # filled in by diff_analyzer.classify_commit
     risk_categories: List[str] = field(default_factory=list)
+    # filename -> unified diff text, or None for binary/unavailable files --
+    # this is what lets the dashboard show "what actually changed" instead
+    # of just a filename. Truncated per-file (see fetch_commits.py) since a
+    # raw patch can be arbitrarily large.
+    file_patches: Dict[str, Optional[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -31,4 +36,5 @@ class CommitInfo:
             "pr_number": self.pr_number,
             "pr_html_url": self.pr_html_url,
             "risk_categories": self.risk_categories,
+            "file_patches": self.file_patches,
         }

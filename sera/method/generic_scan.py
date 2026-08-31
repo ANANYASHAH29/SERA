@@ -87,13 +87,17 @@ def _placeholder_config():
     return baseline_config()
 
 
-def process_generic_scan_result(session, repo: ConnectedRepo, result: GenericScanResult, fetch_commits_fn) -> dict:
+def process_generic_scan_result(
+    session, repo: ConnectedRepo, result: GenericScanResult, fetch_commits_fn, source: str = "manual"
+) -> dict:
     """Core logic: bootstrap-or-compare against the repo's generic
     baseline, rank against real commit history on a regression, and
     persist a ScanResult. `fetch_commits_fn(session, repo)` is injected
     (rather than imported directly) so this module has no dependency on
     either route file -- both routes_generic_scan.py and routes_report.py
-    pass in their own `_fetch_and_classify_commits`.
+    pass in their own `_fetch_and_classify_commits`. `source` is purely
+    descriptive ("ci" vs "manual"), stored so the dashboard can show how a
+    given scan actually got here instead of a hardcoded label.
     """
     current_metrics = generic_to_run_metrics(result)
     baseline_result = load_stored_baseline(repo)
@@ -114,6 +118,7 @@ def process_generic_scan_result(session, repo: ConnectedRepo, result: GenericSca
                     "current_metric": result.primary_metric,
                     "metric_drop": 0.0,
                     "secondary_metrics": result.secondary_metrics,
+                    "source": source,
                     "candidates": [],
                 }
             ),
@@ -132,21 +137,10 @@ def process_generic_scan_result(session, repo: ConnectedRepo, result: GenericSca
         candidates_out = []
     else:
         status = "incident"
-        commits = fetch_commits_fn(session, repo)
+        commits, repo_config = fetch_commits_fn(session, repo)
         ranked = rank_candidates(commits, observed_shape)
         candidates_out = [
-            {
-                "rank": i,
-                "candidate_id": c.candidate_id,
-                "kind": c.kind,
-                "hypothesized_category": c.hypothesized_category,
-                "provenance_score": c.provenance_score,
-                "shape_match_score": c.shape_match_score,
-                "combined_score": c.combined_score,
-                "commit_sha": c.commit.sha if c.commit else None,
-                "commit_message": c.commit.message if c.commit else None,
-            }
-            for i, c in enumerate(ranked)
+            {"rank": i, **c.to_dict(repo_config)} for i, c in enumerate(ranked)
         ]
 
     run = record_run(session, _placeholder_config(), current_metrics, seed=None, is_baseline=False)
@@ -167,6 +161,7 @@ def process_generic_scan_result(session, repo: ConnectedRepo, result: GenericSca
                     "subset_concentration": observed_shape.subset_concentration,
                     "confident_but_wrong": observed_shape.confident_but_wrong,
                 },
+                "source": source,
                 "candidates": candidates_out,
             }
         ),
@@ -175,4 +170,15 @@ def process_generic_scan_result(session, repo: ConnectedRepo, result: GenericSca
     repo.last_scan_at = datetime.utcnow()
     session.flush()
 
-    return {"status": status, "scan_id": scan.id, "metric_drop": drop}
+    response = {"status": status, "scan_id": scan.id, "metric_drop": drop}
+    # Surface the top commit candidate directly in the report response (not
+    # just stored server-side) so a CI reporter can immediately act on it --
+    # e.g. revert exactly these files and re-run the canary as a validation
+    # step -- without a second round-trip to fetch the ranking.
+    if candidates_out and candidates_out[0]["kind"] == "commit":
+        top = candidates_out[0]
+        response["top_candidate"] = {
+            "commit_sha": top["commit_sha"],
+            "files_changed": top["commit_files"],
+        }
+    return response

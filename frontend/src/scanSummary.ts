@@ -1,4 +1,4 @@
-import type { RankedCandidateOut } from "./api";
+import type { InterventionResult, RankedCandidateOut } from "./api";
 
 export interface ParsedScanSummary {
   primaryMetricName: string;
@@ -9,6 +9,7 @@ export interface ParsedScanSummary {
   meanEntropy: number | null;
   observedShape: { broadness: number; subset_concentration: number; confident_but_wrong: number } | null;
   candidates: RankedCandidateOut[];
+  source: string;
 }
 
 /** Reads either ingestion path's summary_json shape defensively --
@@ -28,10 +29,53 @@ export function parseScanSummary(raw: string | null): ParsedScanSummary | null {
       meanEntropy: d.secondary_metrics?.mean_entropy ?? null,
       observedShape: d.observed_shape ?? null,
       candidates: d.candidates ?? [],
+      source: d.source ?? "manual",
     };
   } catch {
     return null;
   }
+}
+
+export function parseValidation(raw: string | null): InterventionResult | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as InterventionResult;
+  } catch {
+    return null;
+  }
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  ci: "automated / CI",
+  manual: "manual / paste-in",
+};
+
+export function sourceLabel(source: string): string {
+  return SOURCE_LABEL[source] ?? source;
+}
+
+export interface WhatChanged {
+  commitSha: string;
+  commitMessage: string | null;
+  stageLabel: string | null;
+  files: { path: string; patch: string | null }[];
+}
+
+/** "What changed" data for the top candidate, when it's a real commit --
+ * files touched plus (when the file is text, not binary) the actual diff
+ * text GitHub already returned, so the dashboard can show the specific
+ * lines that changed instead of just a filename.
+ */
+export function describeWhatChanged(summary: ParsedScanSummary): WhatChanged | null {
+  const top = summary.candidates[0];
+  if (!top || top.kind !== "commit" || !top.commit_sha) return null;
+  const files = top.commit_files ?? [];
+  return {
+    commitSha: top.commit_sha,
+    commitMessage: top.commit_message,
+    stageLabel: top.stage_label,
+    files: files.map((path) => ({ path, patch: top.commit_file_patches?.[path] ?? null })),
+  };
 }
 
 export function timeAgo(isoString: string): string {
@@ -61,10 +105,11 @@ export function describeLikelyCause(summary: ParsedScanSummary): LikelyCause | n
   if (!top) return null;
 
   if (top.kind === "commit") {
+    const stage = top.stage_label ?? top.hypothesized_category;
     return {
       title: `likely cause: commit ${top.commit_sha?.slice(0, 8) ?? "unknown"}`,
       body:
-        `This commit touches a file matching the "${top.hypothesized_category}" risk category, and the ` +
+        `This commit touches a file in the "${stage}" stage of the pipeline, and the ` +
         `observed confidence/entropy shift matches that failure pattern (combined evidence score ` +
         `${top.combined_score.toFixed(2)} vs. the next candidate). ${top.commit_message ?? ""}`.trim(),
     };

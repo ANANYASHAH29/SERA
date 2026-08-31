@@ -176,6 +176,11 @@ class ScanResult(Base):
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=True)
     status = Column(String, default="healthy")  # healthy | incident | pending | error
     summary_json = Column(Text, nullable=True)
+    # Populated later, asynchronously, by the tenant's own CI reverting the
+    # top suspect commit's files and re-running the canary -- see
+    # sera.method.validation. Null until (and unless) that follow-up report
+    # arrives; an incident is fully valid evidence without it.
+    validation_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     repo = relationship("ConnectedRepo", back_populates="scan_results")

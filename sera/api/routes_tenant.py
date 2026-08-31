@@ -185,6 +185,7 @@ def repo_scans(repo_id: int, user_id: int):
                 "run_id": r.run_id,
                 "status": r.status,
                 "summary_json": r.summary_json,
+                "validation_json": r.validation_json,
                 "created_at": r.created_at.isoformat(),
             }
             for r in results

@@ -16,7 +16,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(session_mod, "_default_session_factory", None)
     monkeypatch.setattr(session_mod, "DB_PATH", db_path)
     monkeypatch.setattr(
-        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref: None
+        "sera.api.routes_tenant.load_repo_config_from_github", lambda repo_full_name, ref, token=None: None
     )
 
     from sera.api.main import app
