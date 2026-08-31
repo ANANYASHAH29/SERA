@@ -43,7 +43,7 @@ function DemoPage() {
           </button>
         </nav>
       </header>
-      <main className="mx-auto max-w-4xl px-6 py-6">
+      <main className="mx-auto max-w-7xl px-8 py-8">
         {tab === "diagnosis" ? <LiveDiagnosis /> : <ExperimentResults />}
       </main>
     </div>
@@ -54,9 +54,9 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { session } = useSession();
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white px-6 py-4">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="text-lg font-semibold text-slate-800">
+      <header className="border-b border-slate-200 bg-white px-8 py-5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <Link to="/" className="text-xl font-bold tracking-tight text-slate-800">
             SERA
           </Link>
           <nav className="flex items-center gap-4 text-sm">
@@ -69,7 +69,7 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-4xl px-6 py-6">{children}</main>
+      <main className="mx-auto max-w-7xl px-8 py-8">{children}</main>
     </div>
   );
 }

@@ -76,7 +76,7 @@ export function SettingsPage() {
   if (!session) return <p className="text-sm text-slate-500">Not connected.</p>;
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-4xl">
       <Link to={`/repos/${id}`} className="text-xs text-indigo-600 hover:underline">
         ← back to {repo?.repo_full_name ?? "repo"}
       </Link>

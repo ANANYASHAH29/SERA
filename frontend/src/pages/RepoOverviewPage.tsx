@@ -105,8 +105,8 @@ export function RepoOverviewPage() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-slate-800">Your repos</h1>
-          <p className="text-xs text-slate-400">signed in as {session.githubUsername}</p>
+          <h1 className="text-2xl font-semibold text-slate-800">Your repos</h1>
+          <p className="text-sm text-slate-400">signed in as {session.githubUsername}</p>
         </div>
         <div className="flex gap-2">
           {session.installationId && (

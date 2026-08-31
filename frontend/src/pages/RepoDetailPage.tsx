@@ -61,7 +61,7 @@ export function RepoDetailPage() {
           <Link to="/" className="text-xs text-indigo-600 hover:underline">
             ← all repos
           </Link>
-          <h1 className="mt-1 font-mono text-lg font-semibold text-slate-800">
+          <h1 className="mt-1 font-mono text-xl font-semibold text-slate-800">
             {repo?.repo_full_name ?? `repo #${id}`}
           </h1>
         </div>
@@ -106,7 +106,7 @@ export function RepoDetailPage() {
             ← all repos
           </Link>
           <div className="mt-1 flex items-center gap-2">
-            <h1 className="font-mono text-lg font-semibold text-slate-800">
+            <h1 className="font-mono text-xl font-semibold text-slate-800">
               {repo?.repo_full_name ?? `repo #${id}`}
             </h1>
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_PILL[status] ?? STATUS_PILL.pending}`}>
@@ -119,9 +119,9 @@ export function RepoDetailPage() {
         </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-4">
         <MetricCard label={latestSummary?.primaryMetricName ?? "accuracy"}>
-          <div className={`text-2xl font-semibold ${status === "incident" ? "text-red-600" : "text-slate-800"}`}>
+          <div className={`text-3xl font-semibold ${status === "incident" ? "text-red-600" : "text-slate-800"}`}>
             {latestSummary ? `${(latestSummary.currentMetric * 100).toFixed(1)}%` : "—"}
           </div>
           {status === "incident" && latestSummary && (
@@ -130,21 +130,21 @@ export function RepoDetailPage() {
         </MetricCard>
 
         <MetricCard label="mean confidence">
-          <div className="text-2xl font-semibold text-slate-800">
+          <div className="text-3xl font-semibold text-slate-800">
             {latestSummary?.meanConfidence != null ? latestSummary.meanConfidence.toFixed(2) : "—"}
           </div>
           {confidentlyWrong && <div className="text-xs text-amber-600">confidently wrong</div>}
         </MetricCard>
 
         <MetricCard label="last scan">
-          <div className="text-2xl font-semibold text-slate-800">{timeAgo(latest.created_at)}</div>
+          <div className="text-3xl font-semibold text-slate-800">{timeAgo(latest.created_at)}</div>
           <div className="text-xs text-slate-400">{sourceLabel(latestSummary?.source ?? "manual")}</div>
         </MetricCard>
 
         <MetricCard label="suspect commit">
           {suspectCommit && suspectCommit.kind === "commit" ? (
             <>
-              <div className="font-mono text-2xl font-semibold text-slate-800">
+              <div className="font-mono text-3xl font-semibold text-slate-800">
                 {suspectCommit.commit_sha?.slice(0, 7)}
               </div>
               <div className="text-xs text-slate-400">
@@ -152,12 +152,12 @@ export function RepoDetailPage() {
               </div>
             </>
           ) : (
-            <div className="text-2xl font-semibold text-slate-400">—</div>
+            <div className="text-3xl font-semibold text-slate-400">—</div>
           )}
         </MetricCard>
       </div>
 
-      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="mb-3 text-sm font-semibold text-slate-700">
           {latestSummary?.primaryMetricName ?? "accuracy"} over time — last {Math.min(chartPoints.length, 10)} scans
         </h2>
@@ -165,14 +165,14 @@ export function RepoDetailPage() {
       </div>
 
       {likelyCause && (
-        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4">
+        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-6">
           <h2 className="mb-1 text-sm font-semibold text-red-900">{likelyCause.title}</h2>
           <p className="text-sm text-red-700">{likelyCause.body}</p>
         </div>
       )}
 
       {whatChanged && (
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">What changed</h2>
           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <div className="text-slate-500">Commit</div>
@@ -207,7 +207,7 @@ export function RepoDetailPage() {
       )}
 
       {status === "incident" && whatChanged && (
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">Validation</h2>
           {validation ? (
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
@@ -244,7 +244,7 @@ export function RepoDetailPage() {
       )}
 
       {status === "incident" && whatChanged && (
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">Recovery &amp; feedback</h2>
           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <div className="text-slate-500">Recommended action</div>
@@ -263,7 +263,7 @@ export function RepoDetailPage() {
       )}
 
       {status === "incident" && latestSummary && latestSummary.candidates.length > 0 && (
-        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-2 text-sm font-semibold text-slate-700">Full ranking</h2>
           <RankingTable candidates={latestSummary.candidates} theme="light" />
         </div>
