@@ -155,7 +155,10 @@ export function SettingsPage() {
                 <code className="rounded bg-white px-1">scripts/report_scan.py</code> into{" "}
                 <code className="rounded bg-white px-1">.github/scripts/</code>.
               </li>
-              <li>Add these as repo secrets/variables:</li>
+              <li>
+                Add these as repo secrets (Settings → Secrets and variables → Actions →{" "}
+                <strong>Secrets</strong> tab — all three go there, including the URL):
+              </li>
             </ol>
             {reportToken && repo && (
               <div className="space-y-1 rounded-md bg-white p-3 font-mono text-xs">
