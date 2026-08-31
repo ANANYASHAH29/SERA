@@ -41,6 +41,7 @@ export function RankingTable({
           <tr className={headClass}>
             <th className="py-1 pr-3 font-medium">#</th>
             <th className="py-1 pr-3 font-medium">Candidate</th>
+            <th className="py-1 pr-3 font-medium">Author</th>
             <th className="py-1 pr-3 font-medium">Category</th>
             <th className="py-1 pr-3 font-medium">Provenance</th>
             <th className="py-1 pr-3 font-medium">Shape match</th>
@@ -72,6 +73,7 @@ export function RankingTable({
                   )}
                   {isTop && <span className={`ml-2 rounded px-1.5 py-0.5 ${topBadge}`}>top suspect</span>}
                 </td>
+                <td className={`py-1.5 pr-3 ${categoryClass}`}>{c.commit_author ?? "—"}</td>
                 <td className={`py-1.5 pr-3 ${categoryClass}`}>
                   {c.stage_label ?? c.hypothesized_category ?? "—"}
                 </td>

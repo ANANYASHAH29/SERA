@@ -149,6 +149,7 @@ export function RepoDetailPage() {
               </div>
               <div className="text-xs text-slate-400">
                 {suspectCommit.stage_label ?? suspectCommit.hypothesized_category}
+                {suspectCommit.commit_author && ` · ${suspectCommit.commit_author}`}
               </div>
             </>
           ) : (
@@ -182,6 +183,8 @@ export function RepoDetailPage() {
                 <span className="ml-2 font-sans text-slate-500">— {whatChanged.commitMessage}</span>
               )}
             </div>
+            <div className="text-slate-500">Author</div>
+            <div className="text-slate-800">{whatChanged.commitAuthor ?? "—"}</div>
             <div className="text-slate-500">Pipeline stage</div>
             <div className="text-slate-800">{whatChanged.stageLabel ?? "—"}</div>
           </div>

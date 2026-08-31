@@ -61,6 +61,7 @@ class RankedCandidate:
             "combined_score": self.combined_score,
             "commit_sha": self.commit.sha if self.commit else None,
             "commit_message": self.commit.message if self.commit else None,
+            "commit_author": self.commit.author if self.commit else None,
             "commit_files": self.commit.files_changed if self.commit else None,
             "commit_file_patches": self.commit.file_patches if self.commit else None,
         }

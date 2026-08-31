@@ -57,6 +57,7 @@ export function sourceLabel(source: string): string {
 export interface WhatChanged {
   commitSha: string;
   commitMessage: string | null;
+  commitAuthor: string | null;
   stageLabel: string | null;
   files: { path: string; patch: string | null }[];
 }
@@ -73,6 +74,7 @@ export function describeWhatChanged(summary: ParsedScanSummary): WhatChanged | n
   return {
     commitSha: top.commit_sha,
     commitMessage: top.commit_message,
+    commitAuthor: top.commit_author,
     stageLabel: top.stage_label,
     files: files.map((path) => ({ path, patch: top.commit_file_patches?.[path] ?? null })),
   };

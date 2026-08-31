@@ -31,6 +31,7 @@ export interface RankedCandidateOut {
   combined_score: number;
   commit_sha: string | null;
   commit_message: string | null;
+  commit_author: string | null;
   commit_files: string[] | null;
   commit_file_patches: Record<string, string | null> | null;
 }
