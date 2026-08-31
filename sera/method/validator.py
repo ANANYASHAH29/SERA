@@ -20,7 +20,6 @@ from sera.config import PipelineConfig
 from sera.conditions.registry import CONDITION_FIELDS
 from sera.method.ranker import RankedCandidate
 from sera.pipeline.ingestion import CanaryBatch
-from sera.pipeline.runner import run_pipeline
 
 DEFAULT_RECOVERY_THRESHOLD = 0.05  # accuracy must be within 5pp of baseline to count as "recovered"
 
@@ -54,6 +53,8 @@ def validate_top_candidate(
     baseline_accuracy: float,
     recovery_threshold: float = DEFAULT_RECOVERY_THRESHOLD,
 ) -> ValidationOutcome:
+    from sera.pipeline.runner import run_pipeline
+
     if candidate.kind == "commit" and candidate.hypothesized_category in CONDITION_FIELDS:
         test_config = _reverted_config(
             regressed_config, baseline_config, candidate.hypothesized_category

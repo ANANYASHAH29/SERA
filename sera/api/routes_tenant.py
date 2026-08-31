@@ -27,8 +27,6 @@ from sera.method import tenancy
 from sera.method.evidence_signals import compute_shape_features
 from sera.method.memory import record_run
 from sera.method.ranker import rank_candidates
-from sera.pipeline.ingestion import build_canary_set
-from sera.pipeline.runner import run_pipeline
 from sera.repo_config import generate_starter_template, load_repo_config_from_github
 
 router = APIRouter(prefix="/tenant", tags=["tenant"])
@@ -256,6 +254,14 @@ class ScanRequest(BaseModel):
 @router.post("/repos/{repo_id}/scan")
 def run_demo_scan(repo_id: int, user_id: int, req: ScanRequest):
     import datetime as dt
+
+    # deferred: this is the only code path in the whole API that needs the
+    # torch-based CIFAR reference pipeline, and importing it eagerly at
+    # module load time (i.e. on every process start) is what pushed the
+    # deployed backend's memory footprint over Render's free-tier limit,
+    # even though this endpoint has no frontend caller anymore.
+    from sera.pipeline.ingestion import build_canary_set
+    from sera.pipeline.runner import run_pipeline
 
     if req.condition is not None and req.condition not in ALL_CATEGORIES:
         raise HTTPException(400, f"unknown condition {req.condition!r}")

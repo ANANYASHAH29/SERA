@@ -23,7 +23,6 @@ from sera.github_integration.synthetic_history import generate_synthetic_history
 from sera.method.evidence_signals import compute_shape_features
 from sera.method.memory import record_incident
 from sera.method.ranker import rank_candidates
-from sera.pipeline.runner import run_pipeline
 
 REGRESSION_THRESHOLD = 0.05
 
@@ -83,6 +82,8 @@ def attach_github_history(incident_id: int, req: GithubHistoryRequest):
 
 @router.post("/incidents/{incident_id}/rank", response_model=RankingResponse)
 def rank_incident(incident_id: int):
+    from sera.pipeline.runner import run_pipeline
+
     with session_scope() as session:
         incident = session.get(Incident, incident_id)
         if incident is None:

@@ -13,14 +13,15 @@ from sera.conditions.registry import CONFIG_CONDITIONS, DRIFT_CONDITION
 from sera.config import baseline_config
 from sera.db.session import session_scope
 from sera.method.memory import record_run
-from sera.pipeline.ingestion import build_canary_set
-from sera.pipeline.runner import run_pipeline
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 @router.post("/baseline", response_model=RunSummary)
 def create_baseline_run(seed: int = 0):
+    from sera.pipeline.ingestion import build_canary_set
+    from sera.pipeline.runner import run_pipeline
+
     config = baseline_config()
     batch = build_canary_set()
     metrics = run_pipeline(config, batch, corruption_seed=seed)
@@ -41,6 +42,9 @@ def create_baseline_run(seed: int = 0):
 
 @router.post("/inject", response_model=RunSummary)
 def create_injected_run(req: InjectRequest):
+    from sera.pipeline.ingestion import build_canary_set
+    from sera.pipeline.runner import run_pipeline
+
     base_config = baseline_config()
     batch = build_canary_set()
     seed = req.seed if req.seed is not None else 0
