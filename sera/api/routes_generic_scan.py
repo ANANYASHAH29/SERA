@@ -15,12 +15,16 @@ sera.method.generic_scan, so a result behaves identically either way.
 """
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, HTTPException
+from github import GithubException
 
 from sera.api.routes_report import _fetch_and_classify_commits
 from sera.db.session import session_scope
 from sera.method import tenancy
 from sera.method.canary_draft_generator import generate_canary_draft
+from sera.method.ci_autosetup import setup_ci_reporting
 from sera.method.generic_scan import GenericScanResult, process_generic_scan_result
 from sera.method.repo_scanner import scan_repo_for_sklearn_signals
 
@@ -61,6 +65,52 @@ def canary_draft(repo_id: int, user_id: int):
             },
         )
     return {"draft": generate_canary_draft(signals), "signals": signals.to_dict()}
+
+
+@router.post("/repos/{repo_id}/setup-ci-automation")
+def setup_ci_automation(repo_id: int, user_id: int, base_url: str = "http://127.0.0.1:8000"):
+    """Replaces the "copy these files, set these three secrets by hand"
+    Settings-page instructions with one click: commits the workflow +
+    reporter script and sets SERA_DASHBOARD_URL/SERA_REPO_ID/
+    SERA_REPORT_TOKEN directly via the installation token. Needs the App
+    to actually hold Contents+Workflows+Secrets write permission on this
+    installation -- a 403 here means the repo owner hasn't approved that
+    broader permission grant on GitHub's own consent screen yet, which is
+    a real, necessary step this endpoint can't skip.
+    """
+    with session_scope() as session:
+        try:
+            repo = tenancy.get_owned_repo(session, user_id, repo_id)
+        except tenancy.NotFoundOrNotOwned:
+            raise HTTPException(404, "repo not found")
+
+        if not repo.report_token:
+            repo.report_token = secrets.token_urlsafe(32)
+            session.flush()
+
+        token = tenancy.get_installation_token_for_repo(session, repo)
+        if token is None:
+            raise HTTPException(409, "no live GitHub installation for this repo -- reconnect it first")
+
+        repo_full_name = repo.repo_full_name
+        repo_pk = repo.id
+        report_token = repo.report_token
+
+    try:
+        return setup_ci_reporting(repo_full_name, token, base_url, repo_pk, report_token)
+    except GithubException as e:
+        raise HTTPException(
+            403,
+            {
+                "message": (
+                    "GitHub rejected the automated setup -- the App likely doesn't have "
+                    "Contents, Workflows, and Secrets write permission approved on this "
+                    "installation yet. Update the App's permissions and approve the request "
+                    "on GitHub, then retry."
+                ),
+                "github_error": str(e),
+            },
+        )
 
 
 @router.post("/repos/{repo_id}/ingest-scan-result")

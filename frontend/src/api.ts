@@ -253,6 +253,12 @@ export const api = {
       `/tenant/repos/${repoId}/canary-draft?user_id=${userId}`
     ),
 
+  setupCiAutomation: (userId: number, repoId: number) =>
+    request<{ status: string; workflow_file: string; reporter_script: string }>(
+      `/tenant/repos/${repoId}/setup-ci-automation?user_id=${userId}&base_url=${encodeURIComponent(BACKEND_ORIGIN)}`,
+      { method: "POST" }
+    ),
+
   ingestScanResult: (userId: number, repoId: number, result: GenericScanResult) =>
     request<{ status: string; scan_id?: number; metric_drop?: number; primary_metric?: number }>(
       `/tenant/repos/${repoId}/ingest-scan-result?user_id=${userId}`,

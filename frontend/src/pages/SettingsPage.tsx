@@ -18,6 +18,9 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState<string | null>(null);
+  const [autoSetup, setAutoSetup] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [autoSetupError, setAutoSetupError] = useState<string | null>(null);
+  const [showManualSteps, setShowManualSteps] = useState(false);
 
   useEffect(() => {
     if (!session || !id) return;
@@ -48,6 +51,19 @@ export function SettingsPage() {
     if (!window.confirm(`Disconnect ${repo?.repo_full_name ?? "this repo"}? Scan history is kept.`)) return;
     await api.disconnectRepo(session.userId, parseInt(id, 10));
     navigate("/");
+  }
+
+  async function handleAutoSetup() {
+    if (!session || !id) return;
+    setAutoSetup("loading");
+    setAutoSetupError(null);
+    try {
+      await api.setupCiAutomation(session.userId, parseInt(id, 10));
+      setAutoSetup("done");
+    } catch (e) {
+      setAutoSetup("error");
+      setAutoSetupError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   function copyBadge() {
@@ -101,37 +117,69 @@ export function SettingsPage() {
           sandboxed by GitHub Actions, already has your real dependencies) and reports the result
           here. This is the same pattern Codecov/Sentry/DeepSource use.
         </p>
-        <ol className="mb-3 list-decimal space-y-1 pl-4 text-xs text-indigo-900">
-          <li>
-            Copy{" "}
-            <code className="rounded bg-white px-1">templates/sera_report_scan.yml</code> into your
-            repo at <code className="rounded bg-white px-1">.github/workflows/</code>, and{" "}
-            <code className="rounded bg-white px-1">scripts/report_scan.py</code> into{" "}
-            <code className="rounded bg-white px-1">.github/scripts/</code>.
-          </li>
-          <li>Add these as repo secrets/variables:</li>
-        </ol>
-        {reportToken && repo && (
-          <div className="space-y-1 rounded-md bg-white p-3 font-mono text-xs">
-            {[
-              ["SERA_DASHBOARD_URL", reportToken.report_url.replace(/\/report\/.*/, "")],
-              ["SERA_REPO_ID", String(repo.id)],
-              ["SERA_REPORT_TOKEN", reportToken.report_token],
-            ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between gap-2">
-                <span>
-                  <span className="text-slate-400">{label}=</span>
-                  <span className="text-slate-700">{value}</span>
-                </span>
-                <button
-                  className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-slate-600 hover:bg-slate-200"
-                  onClick={() => copySecret(label, value)}
-                >
-                  {copiedSecret === label ? "Copied!" : "Copy"}
-                </button>
+
+        <div className="mb-3 rounded-md bg-white p-3">
+          <Button theme="light" onClick={handleAutoSetup} loading={autoSetup === "loading"}>
+            {autoSetup === "done" ? "Set up again" : "Enable automated scanning"}
+          </Button>
+          <p className="mt-2 text-xs text-indigo-800">
+            One click: commits the workflow + reporter script into your repo and sets the three
+            secrets below for you, using the same GitHub App installation you already connected.
+            Needs the App's Contents/Workflows/Secrets write permission approved on this repo — if
+            you haven't approved that yet, GitHub will reject it and this button will show why.
+          </p>
+          {autoSetup === "done" && (
+            <p className="mt-2 text-xs font-medium text-emerald-700">
+              ✓ Done — push a commit and the workflow will report to this dashboard automatically.
+            </p>
+          )}
+          {autoSetup === "error" && (
+            <p className="mt-2 text-xs font-medium text-red-700">{autoSetupError}</p>
+          )}
+        </div>
+
+        <button
+          className="mb-2 text-xs font-medium text-indigo-700 hover:underline"
+          onClick={() => setShowManualSteps((v) => !v)}
+        >
+          {showManualSteps ? "Hide manual setup" : "Prefer to set it up by hand instead?"}
+        </button>
+
+        {showManualSteps && (
+          <>
+            <ol className="mb-3 list-decimal space-y-1 pl-4 text-xs text-indigo-900">
+              <li>
+                Copy{" "}
+                <code className="rounded bg-white px-1">templates/sera_report_scan.yml</code> into your
+                repo at <code className="rounded bg-white px-1">.github/workflows/</code>, and{" "}
+                <code className="rounded bg-white px-1">scripts/report_scan.py</code> into{" "}
+                <code className="rounded bg-white px-1">.github/scripts/</code>.
+              </li>
+              <li>Add these as repo secrets/variables:</li>
+            </ol>
+            {reportToken && repo && (
+              <div className="space-y-1 rounded-md bg-white p-3 font-mono text-xs">
+                {[
+                  ["SERA_DASHBOARD_URL", reportToken.report_url.replace(/\/report\/.*/, "")],
+                  ["SERA_REPO_ID", String(repo.id)],
+                  ["SERA_REPORT_TOKEN", reportToken.report_token],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-2">
+                    <span>
+                      <span className="text-slate-400">{label}=</span>
+                      <span className="text-slate-700">{value}</span>
+                    </span>
+                    <button
+                      className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-slate-600 hover:bg-slate-200"
+                      onClick={() => copySecret(label, value)}
+                    >
+                      {copiedSecret === label ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </section>
 
