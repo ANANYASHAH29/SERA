@@ -544,7 +544,7 @@ huge contributor lists) your own demo repo won't have exercised.
   "matches anywhere" — see "Setting up `.sera.yml` for a new repo" above.
   Easy to get a silent false-negative (a real risk file that just doesn't
   match your pattern) if you forget this.
-
+#SECRET GITHUB APP= %gyx5Pp3K8
 ## Explicitly out of scope
 
 No LLM calls anywhere in the diagnostic logic, no Docker/Kubernetes, no
