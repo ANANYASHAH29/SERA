@@ -19,8 +19,24 @@ function ScoreBlocks({ value, theme }: { value: number; theme: Theme }) {
   );
 }
 
-function statusLabel(rank: number, kind: string, light: boolean): { text: string; className: string } {
+type Verdict = "validated" | "inconclusive" | "rejected" | null;
+
+function statusLabel(
+  rank: number,
+  kind: string,
+  light: boolean,
+  verdict: Verdict
+): { text: string; className: string } {
   if (rank === 0) {
+    if (verdict === "validated") {
+      return { text: "VALIDATED", className: light ? "bg-emerald-50 text-emerald-700" : "bg-emerald-950/50 text-emerald-300" };
+    }
+    if (verdict === "rejected") {
+      return { text: "REJECTED", className: light ? "bg-red-50 text-red-700" : "bg-red-950/50 text-red-300" };
+    }
+    if (verdict === "inconclusive") {
+      return { text: "INCONCLUSIVE", className: light ? "bg-amber-50 text-amber-700" : "bg-amber-950/50 text-amber-300" };
+    }
     return { text: "TOP SUSPECT", className: light ? "bg-red-50 text-red-700" : "bg-red-950/50 text-red-300" };
   }
   if (kind === "drift") {
@@ -32,9 +48,11 @@ function statusLabel(rank: number, kind: string, light: boolean): { text: string
 export function RankingTable({
   candidates,
   theme = "dark",
+  topVerdict = null,
 }: {
   candidates: RankedCandidateOut[];
   theme?: Theme;
+  topVerdict?: Verdict;
 }) {
   const light = theme === "light";
   const headClass = light ? "text-[#6B7280]" : "text-slate-500";
@@ -60,7 +78,7 @@ export function RankingTable({
         <tbody>
           {candidates.map((c) => {
             const isDrift = c.kind === "drift";
-            const status = statusLabel(c.rank, c.kind, light);
+            const status = statusLabel(c.rank, c.kind, light, topVerdict);
             return (
               <tr key={c.candidate_id} className={`border-t ${rowBorder}`}>
                 <td className={`py-2.5 pr-3 font-mono ${mutedText}`}>{String(c.rank + 1).padStart(2, "0")}</td>

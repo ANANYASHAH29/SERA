@@ -28,7 +28,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 type StepState = "done" | "warn" | "pending";
 
-function CausalChain({ steps }: { steps: { label: string; state: StepState }[] }) {
+function CausalChain({ steps }: { steps: { label: string; state: StepState; current?: boolean }[] }) {
   const dotClass: Record<StepState, string> = {
     done: "bg-emerald-500",
     warn: "bg-amber-500",
@@ -44,9 +44,13 @@ function CausalChain({ steps }: { steps: { label: string; state: StepState }[] }
       {steps.map((s, i) => (
         <div key={s.label} className="flex items-center">
           {i > 0 && <span className="mx-1.5 text-[#D1D5DB]">→</span>}
-          <span className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-bold uppercase tracking-wide">
+          <span
+            className={`flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
+              s.current ? "bg-indigo-50 ring-1 ring-indigo-200" : ""
+            }`}
+          >
             <span className={`h-1.5 w-1.5 rounded-full ${dotClass[s.state]}`} />
-            <span className={textClass[s.state]}>{s.label}</span>
+            <span className={s.current ? "text-[#4F46E5]" : textClass[s.state]}>{s.label}</span>
           </span>
         </div>
       ))}
@@ -135,6 +139,18 @@ export function RepoDetailPage() {
 
   const suspectCommit = latestSummary?.candidates[0];
   const validation = status === "incident" ? parseValidation(latest.validation_json) : null;
+  // "Recovered" is a binary pass/fail from the backend (within threshold
+  // of baseline). For display, split the failure case further: any real
+  // improvement over the pre-intervention accuracy is INCONCLUSIVE
+  // (the hypothesis explains PART of the regression -- worth keeping as
+  // a live candidate), while no improvement at all is a clean REJECTED.
+  const validationVerdict: "validated" | "inconclusive" | "rejected" | null = !validation
+    ? null
+    : validation.recovered
+      ? "validated"
+      : validation.before_metric != null && validation.after_metric > validation.before_metric + 0.01
+        ? "inconclusive"
+        : "rejected";
   const likelyCause =
     status === "incident" && latestSummary ? describeLikelyCause(latestSummary, validation?.recovered) : null;
   const whatChanged = status === "incident" && latestSummary ? describeWhatChanged(latestSummary) : null;
@@ -232,13 +248,14 @@ export function RepoDetailPage() {
           <CausalChain
             steps={[
               { label: "Commit", state: "done" },
-              { label: "Pipeline ran", state: "done" },
+              { label: "CI execution", state: "done" },
               { label: "Metric shift", state: "done" },
-              { label: "Hypothesis ranked", state: "done" },
-              { label: "Intervention", state: validation ? "done" : "pending" },
+              { label: "Root-cause ranking", state: "done", current: !validation },
+              { label: "Controlled intervention", state: validation ? "done" : "pending" },
               {
-                label: "Outcome",
-                state: !validation ? "pending" : validation.recovered ? "done" : "warn",
+                label: "Validation",
+                state: validationVerdict === null ? "pending" : validationVerdict === "validated" ? "done" : "warn",
+                current: validation != null,
               },
             ]}
           />
@@ -324,12 +341,18 @@ export function RepoDetailPage() {
           <SectionLabel>Validation</SectionLabel>
           <div
             className={`mb-8 rounded-lg border border-[#E5E7EB] border-l-4 bg-white p-6 shadow-sm ${
-              validation ? (validation.recovered ? "border-l-emerald-500" : "border-l-amber-500") : "border-l-[#D1D5DB]"
+              validationVerdict === "validated"
+                ? "border-l-emerald-500"
+                : validationVerdict === "inconclusive"
+                  ? "border-l-amber-500"
+                  : validationVerdict === "rejected"
+                    ? "border-l-red-400"
+                    : "border-l-[#D1D5DB]"
             }`}
           >
             {validation ? (
               <>
-                <div className="mb-4 grid grid-cols-2 gap-6 sm:grid-cols-3">
+                <div className="mb-4 grid grid-cols-2 gap-6 sm:grid-cols-4">
                   <div>
                     <div className="text-xs text-[#6B7280]">Before intervention</div>
                     <div className="text-3xl font-bold text-red-600">
@@ -340,19 +363,51 @@ export function RepoDetailPage() {
                     <div className="text-xs text-[#6B7280]">After intervention</div>
                     <div className="text-3xl font-bold text-emerald-600">{(validation.after_metric * 100).toFixed(1)}%</div>
                   </div>
+                  {validation.before_metric != null && (
+                    <>
+                      <div>
+                        <div className="text-xs text-[#6B7280]">Recovery delta</div>
+                        <div className="text-xl font-bold text-[#111827]">
+                          +{((validation.after_metric - validation.before_metric) * 100).toFixed(1)}pt
+                        </div>
+                      </div>
+                      {validation.baseline_metric != null && validation.baseline_metric > validation.before_metric && (
+                        <div>
+                          <div className="text-xs text-[#6B7280]">Recovery ratio</div>
+                          <div className="text-xl font-bold text-[#111827]">
+                            {(
+                              ((validation.after_metric - validation.before_metric) /
+                                (validation.baseline_metric - validation.before_metric)) *
+                              100
+                            ).toFixed(0)}
+                            %
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div className="mb-3 text-sm text-[#374151]">
                   Intervention: restore {validation.files_reverted.join(", ")} to its state before commit{" "}
                   <span className="font-mono">{whatChanged.commitSha.slice(0, 10)}</span>, re-run the canary in the same CI
                   environment.
                 </div>
-                {validation.recovered ? (
+                {validationVerdict === "validated" && (
                   <div className="rounded-md bg-emerald-50 px-4 py-3 text-base font-bold text-emerald-700">
-                    ✓ Degradation recovered — cause validated
+                    ✓ CAUSE VALIDATED — degradation recovered
                   </div>
-                ) : (
-                  <div className="rounded-md bg-amber-50 px-4 py-3 text-base font-bold text-amber-700">
-                    ✗ Accuracy did not recover — this commit alone may not fully explain the regression
+                )}
+                {validationVerdict === "inconclusive" && (
+                  <div className="rounded-md bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                    ⚠ INCONCLUSIVE — the intervention improved performance but did not restore the baseline. This
+                    hypothesis explains part of the regression; SERA has not ruled it out, but it doesn't fully account
+                    for the observed drop.
+                  </div>
+                )}
+                {validationVerdict === "rejected" && (
+                  <div className="rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                    ✕ REJECTED — reverting this commit alone produced no improvement; this hypothesis does not explain
+                    the regression.
                   </div>
                 )}
               </>
@@ -389,7 +444,7 @@ export function RepoDetailPage() {
         <>
           <SectionLabel>Diagnostic ranking — {latestSummary.candidates.length} hypotheses</SectionLabel>
           <div className="mb-8 rounded-lg border border-[#E5E7EB] bg-white p-6 shadow-sm">
-            <RankingTable candidates={latestSummary.candidates} theme="light" />
+            <RankingTable candidates={latestSummary.candidates} theme="light" topVerdict={validationVerdict} />
           </div>
         </>
       )}
