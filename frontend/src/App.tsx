@@ -54,16 +54,16 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { session } = useSession();
   return (
     <div className="min-h-screen bg-[#F7F8FA] text-[#111827]">
-      <header className="border-b border-[#E5E7EB] bg-white px-8 py-5">
+      <header className="border-b border-slate-800 bg-[#1E293B] px-8 py-5">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <Link to="/" className="text-xl font-bold tracking-tight text-[#111827]">
+          <Link to="/" className="text-xl font-bold tracking-tight text-white">
             SERA
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             {session && (
-              <span className="text-xs text-[#9CA3AF]">{session.githubUsername}</span>
+              <span className="text-xs text-slate-400">{session.githubUsername}</span>
             )}
-            <Link to="/demo" className="text-[#6B7280] hover:text-[#111827]">
+            <Link to="/demo" className="text-slate-300 hover:text-white">
               Research demo (dark mode) →
             </Link>
           </nav>

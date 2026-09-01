@@ -26,6 +26,34 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-[#6B7280]">{children}</h2>;
 }
 
+type StepState = "done" | "warn" | "pending";
+
+function CausalChain({ steps }: { steps: { label: string; state: StepState }[] }) {
+  const dotClass: Record<StepState, string> = {
+    done: "bg-emerald-500",
+    warn: "bg-amber-500",
+    pending: "bg-[#D1D5DB]",
+  };
+  const textClass: Record<StepState, string> = {
+    done: "text-[#111827]",
+    warn: "text-amber-700",
+    pending: "text-[#9CA3AF]",
+  };
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-x-1 gap-y-2">
+      {steps.map((s, i) => (
+        <div key={s.label} className="flex items-center">
+          {i > 0 && <span className="mx-1.5 text-[#D1D5DB]">→</span>}
+          <span className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-bold uppercase tracking-wide">
+            <span className={`h-1.5 w-1.5 rounded-full ${dotClass[s.state]}`} />
+            <span className={textClass[s.state]}>{s.label}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MetricCard({
   label,
   value,
@@ -201,10 +229,33 @@ export function RepoDetailPage() {
       {likelyCause && whatChanged && (
         <>
           <SectionLabel>Active incident</SectionLabel>
+          <CausalChain
+            steps={[
+              { label: "Commit", state: "done" },
+              { label: "Pipeline ran", state: "done" },
+              { label: "Metric shift", state: "done" },
+              { label: "Hypothesis ranked", state: "done" },
+              { label: "Intervention", state: validation ? "done" : "pending" },
+              {
+                label: "Outcome",
+                state: !validation ? "pending" : validation.recovered ? "done" : "warn",
+              },
+            ]}
+          />
           <div className="mb-8 rounded-lg border border-[#E5E7EB] border-l-4 border-l-red-500 bg-white p-6 shadow-sm">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="text-red-600">🔴</span>
-              <h3 className="text-base font-bold uppercase tracking-wide text-[#111827]">Pipeline degradation</h3>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-red-600">🔴</span>
+                <h3 className="text-base font-bold uppercase tracking-wide text-[#111827]">Pipeline degradation</h3>
+              </div>
+              <a
+                href={`${commitUrl(whatChanged.commitSha)}/checks`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-medium text-[#4F46E5] hover:underline"
+              >
+                View CI run ↗
+              </a>
             </div>
             <p className="mb-3 text-sm font-medium text-[#111827]">
               {latestSummary?.primaryMetricName ?? "Accuracy"} dropped {(latestSummary!.baselineMetric * 100).toFixed(1)}% →{" "}
@@ -222,6 +273,8 @@ export function RepoDetailPage() {
                 </a>
                 {whatChanged.commitMessage && <span className="ml-2 font-sans text-[#6B7280]">— {whatChanged.commitMessage}</span>}
               </div>
+              <div className="text-[#6B7280]">Branch</div>
+              <div className="font-mono text-[#111827]">main</div>
               <div className="text-[#6B7280]">Author</div>
               <div className="text-[#111827]">{whatChanged.commitAuthor ?? "—"}</div>
               <div className="text-[#6B7280]">Stage</div>
