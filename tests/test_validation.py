@@ -70,17 +70,58 @@ def _fake_commit():
     )
 
 
-def _patch_commit_fetch(monkeypatch):
-    monkeypatch.setattr(
-        "sera.api.routes_report._fetch_and_classify_commits",
-        lambda session, repo: ([_fake_commit()], None),
+def _irrelevant_commit():
+    from sera.github_integration.commit_types import CommitInfo
+
+    return CommitInfo(
+        sha="deadbeef00000000000000000000000000000000",
+        message="Update README",
+        author="bob",
+        timestamp=datetime.utcnow(),
+        files_changed=["README.md"],
+        risk_categories=[],  # touches no risk-category file -- no evidence at all
+        file_patches={"README.md": "+docs line"},
     )
 
 
-def _report_incident(client, monkeypatch, repo_id, token):
-    _patch_commit_fetch(monkeypatch)
+def _patch_commit_fetch(monkeypatch, commits=None):
+    from datetime import datetime
+
+    commits = commits if commits is not None else [_fake_commit()]
+    monkeypatch.setattr(
+        "sera.api.routes_report._fetch_and_classify_commits",
+        lambda session, repo: (commits, None, datetime.utcnow()),
+    )
+
+
+def _report_incident(client, monkeypatch, repo_id, token, commits=None):
+    _patch_commit_fetch(monkeypatch, commits)
     client.post(f"/report/{repo_id}/generic-scan", json=_generic_payload(0.95, token))
     return client.post(f"/report/{repo_id}/generic-scan", json=_generic_payload(0.60, token))
+
+
+def test_zero_evidence_commits_are_excluded_from_visible_ranking(client, monkeypatch):
+    # A commit that touches no risk-category file contributes nothing to
+    # the hypothesis space -- it shouldn't clutter the ranking table
+    # alongside the commit that actually has evidence.
+    _, repo_id, token = _connect_repo(client)
+    resp = _report_incident(client, monkeypatch, repo_id, token, commits=[_fake_commit(), _irrelevant_commit()])
+    body = resp.json()
+    assert body["status"] == "incident"
+
+    from sera.db.session import session_scope
+    from sera.db.models import ScanResult
+    import json
+
+    with session_scope() as session:
+        scan = session.get(ScanResult, body["scan_id"])
+        summary = json.loads(scan.summary_json)
+
+    shas = [c["commit_sha"] for c in summary["candidates"]]
+    assert _fake_commit().sha in shas
+    assert _irrelevant_commit().sha not in shas
+    assert summary["commits_analyzed"] == 2
+    assert summary["commits_relevant"] == 1
 
 
 def test_incident_response_surfaces_top_candidate_for_intervention(client, monkeypatch):

@@ -10,6 +10,9 @@ export interface ParsedScanSummary {
   observedShape: { broadness: number; subset_concentration: number; confident_but_wrong: number } | null;
   candidates: RankedCandidateOut[];
   source: string;
+  windowSince: string | null;
+  commitsAnalyzed: number;
+  commitsRelevant: number;
 }
 
 /** Reads either ingestion path's summary_json shape defensively --
@@ -30,6 +33,9 @@ export function parseScanSummary(raw: string | null): ParsedScanSummary | null {
       observedShape: d.observed_shape ?? null,
       candidates: d.candidates ?? [],
       source: d.source ?? "manual",
+      windowSince: d.window_since ?? null,
+      commitsAnalyzed: d.commits_analyzed ?? 0,
+      commitsRelevant: d.commits_relevant ?? 0,
     };
   } catch {
     return null;
@@ -101,15 +107,21 @@ export interface LikelyCause {
 /** Generates the "likely cause" narrative from the top-ranked candidate +
  * observed shape signals -- never fabricates a specific commit/category
  * that the ranking didn't actually produce.
+ *
+ * `validated` reflects actual epistemic status, not just a ranking: a
+ * commit is a "top-ranked hypothesis" until the CI-driven intervention
+ * confirms recovery, at which point it becomes a "validated culprit" --
+ * ranking alone is not proof, and the wording says so.
  */
-export function describeLikelyCause(summary: ParsedScanSummary): LikelyCause | null {
+export function describeLikelyCause(summary: ParsedScanSummary, validated?: boolean): LikelyCause | null {
   const top = summary.candidates[0];
   if (!top) return null;
 
   if (top.kind === "commit") {
     const stage = top.stage_label ?? top.hypothesized_category;
+    const verdict = validated ? "Validated culprit" : "Top-ranked hypothesis";
     return {
-      title: `likely cause: commit ${top.commit_sha?.slice(0, 8) ?? "unknown"}`,
+      title: `${verdict}: commit ${top.commit_sha?.slice(0, 8) ?? "unknown"}`,
       body:
         `This commit touches a file in the "${stage}" stage of the pipeline, and the ` +
         `observed confidence/entropy shift matches that failure pattern (combined evidence score ` +
@@ -120,18 +132,19 @@ export function describeLikelyCause(summary: ParsedScanSummary): LikelyCause | n
   const confidentButWrong = summary.observedShape?.confident_but_wrong ?? 0;
   if (confidentButWrong > 0.5) {
     return {
-      title: "likely cause: possible data integrity issue",
+      title: "Top hypothesis: possible data integrity issue",
       body:
         "Accuracy dropped sharply while confidence stayed high — the model is confidently wrong, " +
         "not uncertain. This pattern often indicates a labeling error or data tampering rather than " +
-        "gradual natural drift. No recent commit explains the change.",
+        "gradual natural drift. No commit in the analyzed window explains the change.",
     };
   }
 
   return {
-    title: "likely cause: genuine data drift",
+    title: "Top hypothesis: genuine data drift (no commit)",
     body:
-      "No recent commit touches a risk-category file, and the confidence pattern is consistent with " +
-      "the input distribution shifting since deployment rather than a code change.",
+      "No commit in the analyzed window touches a risk-category file with a matching evidence shape. " +
+      "The confidence/entropy pattern is consistent with the input distribution shifting since " +
+      "deployment rather than a code change — SERA is not manufacturing a culprit commit here.",
   };
 }

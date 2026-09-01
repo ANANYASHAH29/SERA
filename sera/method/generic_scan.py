@@ -131,17 +131,27 @@ def process_generic_scan_result(
     drop = baseline_result.primary_metric - result.primary_metric
     observed_shape = compute_shape_features(baseline_metrics, current_metrics)
 
+    window_since = None
+    commits_analyzed = 0
+    commits_relevant = 0
     if drop < REGRESSION_THRESHOLD:
         status = "healthy"
         repo.generic_baseline_snapshot_json = json.dumps(result.model_dump())  # rolling baseline
         candidates_out = []
     else:
         status = "incident"
-        commits, repo_config = fetch_commits_fn(session, repo)
+        commits, repo_config, window_since = fetch_commits_fn(session, repo)
+        commits_analyzed = len(commits)
         ranked = rank_candidates(commits, observed_shape)
-        candidates_out = [
-            {"rank": i, **c.to_dict(repo_config)} for i, c in enumerate(ranked)
-        ]
+        # Drop candidates with zero evidence (touch no risk-category file
+        # at all -- e.g. a README or CI-config commit) from what's shown.
+        # They contribute nothing to the hypothesis space; listing them
+        # anyway just clutters the ranking with commits that were never
+        # actually being considered. The drift hypothesis always stays,
+        # even at a low score, since it's a genuine alternative explanation.
+        visible = [c for c in ranked if c.kind == "drift" or c.combined_score > 0]
+        candidates_out = [{"rank": i, **c.to_dict(repo_config)} for i, c in enumerate(visible)]
+        commits_relevant = sum(1 for c in visible if c.kind == "commit")
 
     run = record_run(session, _placeholder_config(), current_metrics, seed=None, is_baseline=False)
     scan = ScanResult(
@@ -162,6 +172,9 @@ def process_generic_scan_result(
                     "confident_but_wrong": observed_shape.confident_but_wrong,
                 },
                 "source": source,
+                "window_since": window_since.isoformat() if window_since else None,
+                "commits_analyzed": commits_analyzed,
+                "commits_relevant": commits_relevant,
                 "candidates": candidates_out,
             }
         ),

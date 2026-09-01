@@ -115,11 +115,10 @@ def report_scan(repo_id: int, req: ReportScanRequest):
         else:
             status = "incident"
             observed_shape = compute_shape_features(baseline_metrics, current_metrics)
-            commits, repo_config = _fetch_and_classify_commits(session, repo)
+            commits, repo_config, window_since = _fetch_and_classify_commits(session, repo)
             ranked = rank_candidates(commits, observed_shape)
-            candidates_out = [
-                {"rank": i, **c.to_dict(repo_config)} for i, c in enumerate(ranked)
-            ]
+            visible = [c for c in ranked if c.kind == "drift" or c.combined_score > 0]
+            candidates_out = [{"rank": i, **c.to_dict(repo_config)} for i, c in enumerate(visible)]
             # baseline deliberately NOT advanced on incident -- keeps
             # measuring against the last known-good state until it's
             # actually fixed, matching real monitoring semantics.
@@ -134,6 +133,9 @@ def report_scan(repo_id: int, req: ReportScanRequest):
                     "baseline_accuracy": baseline.accuracy,
                     "regressed_accuracy": current.accuracy,
                     "accuracy_drop": drop,
+                    "window_since": window_since.isoformat() if status == "incident" else None,
+                    "commits_analyzed": len(commits) if status == "incident" else 0,
+                    "commits_relevant": sum(1 for c in visible if c.kind == "commit") if status == "incident" else 0,
                     "candidates": candidates_out,
                 }
             ),
@@ -200,29 +202,53 @@ def report_validation(repo_id: int, req: ValidateScanRequest):
         return {"status": "validated", "recovered": validation["recovered"]}
 
 
+def _candidate_window_start(session, repo: ConnectedRepo):
+    """Bisection interval start: the timestamp this repo was LAST known
+    healthy, not a fixed clock window. A fixed 24h lookback keeps already
+    -fixed regressions in the candidate pool right alongside the new one
+    -- every commit since the last real fix looks equally guilty (same
+    risk category, same file, same observed shape), so the ranking can't
+    tell them apart and picks an arbitrary winner. Bounding to "since
+    last healthy" is what real commit-bisection does: only changes that
+    happened between the last known-good state and now could possibly be
+    the cause of THIS regression.
+    """
+    last_healthy = (
+        session.query(ScanResult)
+        .filter_by(repo_id=repo.id, status="healthy")
+        .order_by(ScanResult.created_at.desc())
+        .first()
+    )
+    if last_healthy is not None:
+        return last_healthy.created_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS)
+
+
 def _fetch_and_classify_commits(session, repo: ConnectedRepo):
-    """Returns (commits, repo_config) -- repo_config is surfaced alongside
-    the commits (not just used internally for classification) so callers
-    can render real pipeline-stage names for the risk categories it
-    declares, e.g. `.sera.yml`'s "F5_checkpoint" -> "Checkpoint".
+    """Returns (commits, repo_config, window_since) -- repo_config is
+    surfaced alongside the commits (not just used internally for
+    classification) so callers can render real pipeline-stage names for
+    the risk categories it declares, e.g. `.sera.yml`'s "F5_checkpoint"
+    -> "Checkpoint". window_since is the bisection interval's start, for
+    callers that want to show "N commits analyzed since <time>".
     """
     from sera.method.tenancy import get_installation_token_for_repo
 
+    since = _candidate_window_start(session, repo)
     token = get_installation_token_for_repo(session, repo)
     if token is None:
-        return [], None  # no installation to fetch commits with -- rank against drift-only
+        return [], None, since  # no installation to fetch commits with -- rank against drift-only
     try:
-        since = datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS)
         until = datetime.now(timezone.utc)
         commits = fetch_commit_history(repo.repo_full_name, since=since, until=until, token=token)
         repo_config = load_repo_config_from_github(repo.repo_full_name, ref="HEAD", token=token)
         classify_commits(commits, repo_config=repo_config)
-        return commits, repo_config
+        return commits, repo_config, since
     except Exception:
         # commit history is supporting evidence, not required to detect
         # the regression at all -- degrade to a drift-only ranking rather
         # than failing the whole report.
-        return [], None
+        return [], None, since
 
 
 def _placeholder_config():

@@ -88,9 +88,10 @@ export function RepoDetailPage() {
     .filter((p): p is { time: string; metric: number; status: string } => p !== null);
 
   const suspectCommit = latestSummary?.candidates[0];
-  const likelyCause = status === "incident" && latestSummary ? describeLikelyCause(latestSummary) : null;
-  const whatChanged = status === "incident" && latestSummary ? describeWhatChanged(latestSummary) : null;
   const validation = status === "incident" ? parseValidation(latest.validation_json) : null;
+  const likelyCause =
+    status === "incident" && latestSummary ? describeLikelyCause(latestSummary, validation?.recovered) : null;
+  const whatChanged = status === "incident" && latestSummary ? describeWhatChanged(latestSummary) : null;
   // Only meaningful as an explanation for a real regression -- a healthy
   // scan can have a nonzero confident_but_wrong signal from noise alone
   // (a few samples flipped without moving overall accuracy past the
@@ -169,6 +170,17 @@ export function RepoDetailPage() {
         <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-6">
           <h2 className="mb-1 text-sm font-semibold text-red-900">{likelyCause.title}</h2>
           <p className="text-sm text-red-700">{likelyCause.body}</p>
+          {latestSummary && (
+            <p className="mt-2 text-xs text-red-500">
+              Analyzed {latestSummary.commitsAnalyzed} commit{latestSummary.commitsAnalyzed === 1 ? "" : "s"} since
+              the last healthy scan
+              {latestSummary.windowSince && ` (${new Date(latestSummary.windowSince).toLocaleString()})`} —{" "}
+              {latestSummary.commitsRelevant} touched a risk-category file
+              {latestSummary.commitsAnalyzed > latestSummary.commitsRelevant &&
+                `, ${latestSummary.commitsAnalyzed - latestSummary.commitsRelevant} excluded as non-ML-relevant`}
+              .
+            </p>
+          )}
         </div>
       )}
 
