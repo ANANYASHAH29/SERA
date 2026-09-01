@@ -13,6 +13,7 @@ export interface ParsedScanSummary {
   windowSince: string | null;
   commitsAnalyzed: number;
   commitsRelevant: number;
+  taskType: string | null;
 }
 
 /** Reads either ingestion path's summary_json shape defensively --
@@ -36,6 +37,7 @@ export function parseScanSummary(raw: string | null): ParsedScanSummary | null {
       windowSince: d.window_since ?? null,
       commitsAnalyzed: d.commits_analyzed ?? 0,
       commitsRelevant: d.commits_relevant ?? 0,
+      taskType: d.task_type ?? null,
     };
   } catch {
     return null;

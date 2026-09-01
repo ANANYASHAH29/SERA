@@ -1,17 +1,32 @@
 import type { RankedCandidateOut } from "../api";
 import type { Theme } from "./StepCard";
 
-function ScoreBar({ value, color, theme }: { value: number; color: string; theme: Theme }) {
-  const trackClass = theme === "light" ? "bg-slate-200" : "bg-slate-800";
-  const textClass = theme === "light" ? "text-slate-500" : "text-slate-400";
+function ScoreBlocks({ value, theme }: { value: number; theme: Theme }) {
+  const total = 10;
+  const filled = Math.round(value * total);
+  const filledColor = theme === "light" ? "bg-[#4F46E5]" : "bg-indigo-400";
+  const emptyColor = theme === "light" ? "bg-[#E5E7EB]" : "bg-slate-800";
+  const textClass = theme === "light" ? "text-[#6B7280]" : "text-slate-500";
   return (
     <div className="flex items-center gap-2">
-      <div className={`h-1.5 w-16 overflow-hidden rounded-full ${trackClass}`}>
-        <div className={`h-full ${color}`} style={{ width: `${Math.round(value * 100)}%` }} />
+      <div className="flex gap-0.5">
+        {Array.from({ length: total }, (_, i) => (
+          <div key={i} className={`h-3 w-1.5 rounded-sm ${i < filled ? filledColor : emptyColor}`} />
+        ))}
       </div>
-      <span className={`w-10 text-right text-xs tabular-nums ${textClass}`}>{value.toFixed(2)}</span>
+      <span className={`w-9 text-right text-xs font-mono tabular-nums ${textClass}`}>{value.toFixed(2)}</span>
     </div>
   );
+}
+
+function statusLabel(rank: number, kind: string, light: boolean): { text: string; className: string } {
+  if (rank === 0) {
+    return { text: "TOP SUSPECT", className: light ? "bg-red-50 text-red-700" : "bg-red-950/50 text-red-300" };
+  }
+  if (kind === "drift") {
+    return { text: "ALTERNATIVE", className: light ? "bg-amber-50 text-amber-700" : "bg-amber-950/50 text-amber-300" };
+  }
+  return { text: "CANDIDATE", className: light ? "bg-[#F7F8FA] text-[#6B7280]" : "bg-slate-800 text-slate-400" };
 }
 
 export function RankingTable({
@@ -22,69 +37,51 @@ export function RankingTable({
   theme?: Theme;
 }) {
   const light = theme === "light";
-  const headClass = light ? "text-slate-500" : "text-slate-500";
-  const rowBorder = light ? "border-slate-200" : "border-slate-800";
-  const topRowBg = light ? "bg-indigo-50" : "bg-indigo-950/30";
-  const rankTextClass = light ? "text-slate-400" : "text-slate-500";
-  const categoryClass = light ? "text-slate-600" : "text-slate-300";
-  const driftBadge = light
-    ? "bg-amber-100 text-amber-800"
-    : "bg-amber-900/40 text-amber-300";
-  const topBadge = light
-    ? "bg-indigo-100 text-indigo-700"
-    : "bg-indigo-700/50 text-indigo-200";
+  const headClass = light ? "text-[#6B7280]" : "text-slate-500";
+  const rowBorder = light ? "border-[#E5E7EB]" : "border-slate-800";
+  const primaryText = light ? "text-[#111827]" : "text-slate-100";
+  const mutedText = light ? "text-[#6B7280]" : "text-slate-500";
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-xs">
         <thead>
           <tr className={headClass}>
-            <th className="py-1 pr-3 font-medium">#</th>
-            <th className="py-1 pr-3 font-medium">Candidate</th>
-            <th className="py-1 pr-3 font-medium">Author</th>
-            <th className="py-1 pr-3 font-medium">Category</th>
-            <th className="py-1 pr-3 font-medium">Provenance</th>
-            <th className="py-1 pr-3 font-medium">Shape match</th>
-            <th className="py-1 pr-3 font-medium">Combined</th>
+            <th className="py-2 pr-3 font-medium">#</th>
+            <th className="py-2 pr-3 font-medium">Hypothesis</th>
+            <th className="py-2 pr-3 font-medium">Author</th>
+            <th className="py-2 pr-3 font-medium">Category</th>
+            <th className="py-2 pr-3 font-medium">Provenance</th>
+            <th className="py-2 pr-3 font-medium">Shape match</th>
+            <th className="py-2 pr-3 font-medium">Combined</th>
+            <th className="py-2 pr-3 font-medium">Status</th>
           </tr>
         </thead>
         <tbody>
           {candidates.map((c) => {
-            const isTop = c.rank === 0;
             const isDrift = c.kind === "drift";
+            const status = statusLabel(c.rank, c.kind, light);
             return (
-              <tr
-                key={c.candidate_id}
-                className={`border-t ${rowBorder} ${isTop ? topRowBg : ""}`}
-              >
-                <td className={`py-1.5 pr-3 ${rankTextClass}`}>{c.rank + 1}</td>
-                <td className="py-1.5 pr-3 font-mono">
-                  {isDrift ? (
-                    <span className={`rounded px-1.5 py-0.5 ${driftBadge}`}>
-                      NO COMMIT — drift
-                    </span>
-                  ) : (
-                    // synthetic shas are "harmless0000<8 hex>" / "guiltyF3<8 hex>" --
-                    // the numeric-prefix part repeats across rows, so slice past it
-                    // (real GitHub 40-char hex shas are fine at any reasonable length)
-                    <span title={c.commit_message ?? undefined}>
-                      {c.commit_sha?.slice(0, 18)}
-                    </span>
-                  )}
-                  {isTop && <span className={`ml-2 rounded px-1.5 py-0.5 ${topBadge}`}>top suspect</span>}
+              <tr key={c.candidate_id} className={`border-t ${rowBorder}`}>
+                <td className={`py-2.5 pr-3 font-mono ${mutedText}`}>{String(c.rank + 1).padStart(2, "0")}</td>
+                <td className={`py-2.5 pr-3 font-mono font-medium ${primaryText}`}>
+                  {isDrift ? "NO COMMIT — drift" : c.commit_sha?.slice(0, 10)}
                 </td>
-                <td className={`py-1.5 pr-3 ${categoryClass}`}>{c.commit_author ?? "—"}</td>
-                <td className={`py-1.5 pr-3 ${categoryClass}`}>
-                  {c.stage_label ?? c.hypothesized_category ?? "—"}
+                <td className={`py-2.5 pr-3 ${primaryText}`}>{c.commit_author ?? "—"}</td>
+                <td className={`py-2.5 pr-3 ${primaryText}`}>{c.stage_label ?? c.hypothesized_category ?? "—"}</td>
+                <td className="py-2.5 pr-3">
+                  <ScoreBlocks value={c.provenance_score} theme={theme} />
                 </td>
-                <td className="py-1.5 pr-3">
-                  <ScoreBar value={c.provenance_score} color="bg-sky-500" theme={theme} />
+                <td className="py-2.5 pr-3">
+                  <ScoreBlocks value={c.shape_match_score} theme={theme} />
                 </td>
-                <td className="py-1.5 pr-3">
-                  <ScoreBar value={c.shape_match_score} color="bg-fuchsia-500" theme={theme} />
+                <td className="py-2.5 pr-3">
+                  <ScoreBlocks value={c.combined_score} theme={theme} />
                 </td>
-                <td className="py-1.5 pr-3">
-                  <ScoreBar value={c.combined_score} color="bg-emerald-500" theme={theme} />
+                <td className="py-2.5 pr-3">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${status.className}`}>
+                    {status.text}
+                  </span>
                 </td>
               </tr>
             );
