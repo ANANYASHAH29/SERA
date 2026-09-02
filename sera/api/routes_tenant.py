@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from sera.conditions.registry import ALL_CATEGORIES, CONFIG_CONDITIONS, DRIFT_CONDITION, DRIFT_LABEL
 from sera.config import baseline_config
-from sera.db.models import ConnectedRepo, ScanResult, User
+from sera.db.models import ConnectedRepo, ScanResult, User, to_utc_iso
 from sera.db.session import session_scope
 from sera.github_integration.diff_analyzer import classify_commits
 from sera.github_integration.github_app import (
@@ -61,8 +61,8 @@ def _repo_to_out(session, repo: ConnectedRepo) -> RepoOut:
         id=repo.id,
         repo_full_name=repo.repo_full_name,
         sera_yml_status=repo.sera_yml_status,
-        connected_at=repo.connected_at.isoformat(),
-        last_scan_at=repo.last_scan_at.isoformat() if repo.last_scan_at else None,
+        connected_at=to_utc_iso(repo.connected_at),
+        last_scan_at=to_utc_iso(repo.last_scan_at),
         health_status=latest_scan.status if latest_scan else "never_scanned",
         incident_count=incident_count,
     )
@@ -186,7 +186,9 @@ def repo_scans(repo_id: int, user_id: int):
                 "status": r.status,
                 "summary_json": r.summary_json,
                 "validation_json": r.validation_json,
-                "created_at": r.created_at.isoformat(),
+                "interventions_json": r.interventions_json,
+                "head_sha": r.head_sha,
+                "created_at": to_utc_iso(r.created_at),
             }
             for r in results
         ]

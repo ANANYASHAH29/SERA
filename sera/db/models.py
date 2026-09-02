@@ -27,6 +27,20 @@ def utcnow() -> dt.datetime:
     return dt.datetime.utcnow()
 
 
+def to_utc_iso(value: "dt.datetime | None") -> "str | None":
+    """Every timestamp column in this file is populated via utcnow() --
+    a NAIVE datetime that IS UTC, but whose .isoformat() carries no
+    timezone marker at all. A browser parsing that string with `new
+    Date(...)` assumes it's in the *viewer's local* timezone, not UTC --
+    silently adding the viewer's UTC offset as false elapsed time (e.g.
+    a scan from 30 seconds ago reads "5h ago" for an IST viewer). Always
+    serialize through this helper instead of calling .isoformat() directly.
+    """
+    if value is None:
+        return None
+    return value.isoformat() + "Z"
+
+
 class Run(Base):
     __tablename__ = "runs"
 

@@ -33,7 +33,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from sera.canary_interface import CanaryEvalResult, to_run_metrics
-from sera.db.models import ConnectedRepo, ScanResult
+from sera.db.models import ConnectedRepo, ScanResult, to_utc_iso
 from sera.db.session import session_scope
 from sera.github_integration.diff_analyzer import classify_commits
 from sera.github_integration.fetch_commits import fetch_commit_history
@@ -133,6 +133,8 @@ def report_scan(repo_id: int, req: ReportScanRequest):
                     "baseline_accuracy": baseline.accuracy,
                     "regressed_accuracy": current.accuracy,
                     "accuracy_drop": drop,
+                    # window_since is already tz-aware (see _candidate_window_start) --
+                    # plain isoformat() already carries a correct +00:00 offset.
                     "window_since": window_since.isoformat() if status == "incident" else None,
                     "commits_analyzed": len(commits) if status == "incident" else 0,
                     "commits_relevant": sum(1 for c in visible if c.kind == "commit") if status == "incident" else 0,

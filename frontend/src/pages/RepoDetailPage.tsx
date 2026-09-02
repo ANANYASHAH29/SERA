@@ -75,20 +75,35 @@ function MetricCard({
   valueClassName = "text-[#111827]",
   detail,
   caption,
+  accent = false,
 }: {
   label: string;
   value: string;
   valueClassName?: string;
   detail?: React.ReactNode;
   caption?: string;
+  accent?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-[#E5E7EB] bg-white p-4 shadow-sm">
+    <div
+      className={`rounded-lg border bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg ${
+        accent ? "border-red-200 shadow-red-100" : "border-[#E5E7EB]"
+      }`}
+    >
       <div className="text-[10px] font-bold uppercase tracking-widest text-[#6B7280]">{label}</div>
       <div className={`mt-1.5 text-3xl font-bold ${valueClassName}`}>{value}</div>
       {detail && <div className="mt-1 text-xs font-medium">{detail}</div>}
       {caption && <div className="mt-1 text-[11px] text-[#9CA3AF]">{caption}</div>}
     </div>
+  );
+}
+
+function PulseDot({ color }: { color: string }) {
+  return (
+    <span className="relative flex h-2.5 w-2.5">
+      <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${color} opacity-60`} />
+      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${color}`} />
+    </span>
   );
 }
 
@@ -182,10 +197,10 @@ export function RepoDetailPage() {
       </Link>
 
       {/* Dark repo identity header */}
-      <div className="rounded-lg bg-[#0B0D10] px-6 pb-9 pt-5">
+      <div className="rounded-lg bg-gradient-to-br from-[#12151B] to-[#0B0D10] px-6 pb-9 pt-5 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className={`h-2.5 w-2.5 rounded-full ${STATUS_DOT[status] ?? STATUS_DOT.pending}`} />
+            <PulseDot color={status === "incident" ? "bg-red-500" : STATUS_DOT[status] ?? STATUS_DOT.pending} />
             <h1 className="font-mono text-lg font-semibold text-white">{repo?.repo_full_name ?? `repo #${id}`}</h1>
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-widest ${
@@ -203,10 +218,7 @@ export function RepoDetailPage() {
           {latestSummary?.taskType && <span className="uppercase tracking-wide">{latestSummary.taskType}</span>}
           {isLive && (
             <span className="flex items-center gap-1.5 text-emerald-400">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              </span>
+              <PulseDot color="bg-emerald-400" />
               MONITORING ACTIVE
             </span>
           )}
@@ -222,6 +234,7 @@ export function RepoDetailPage() {
           label={latestSummary?.primaryMetricName ?? "accuracy"}
           value={latestSummary ? `${(latestSummary.currentMetric * 100).toFixed(1)}%` : "—"}
           valueClassName={status === "incident" ? "text-red-600" : "text-[#111827]"}
+          accent={status === "incident"}
           detail={
             status === "incident" && latestSummary ? (
               <span className="text-red-500">↓ {(latestSummary.metricDrop * 100).toFixed(1)}pt</span>

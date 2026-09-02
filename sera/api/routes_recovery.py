@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from github import GithubException
 from pydantic import BaseModel
 
-from sera.db.models import RecoveryAction, ScanResult
+from sera.db.models import RecoveryAction, ScanResult, to_utc_iso
 from sera.db.session import session_scope
 from sera.method import tenancy
 from sera.method.recovery import RecoveryError, build_recovery_plan, execute_recovery, propose_recovery
@@ -36,8 +36,8 @@ def _action_to_dict(action: RecoveryAction) -> dict:
         "before_metric": action.before_metric,
         "after_metric": action.after_metric,
         "resolved_scan_id": action.resolved_scan_id,
-        "created_at": action.created_at.isoformat(),
-        "resolved_at": action.resolved_at.isoformat() if action.resolved_at else None,
+        "created_at": to_utc_iso(action.created_at),
+        "resolved_at": to_utc_iso(action.resolved_at),
     }
 
 
