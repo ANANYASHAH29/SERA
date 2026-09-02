@@ -105,7 +105,44 @@ export interface ScanResultOut {
   status: string;
   summary_json: string | null;
   validation_json: string | null;
+  interventions_json: string | null;
+  head_sha: string | null;
   created_at: string;
+}
+
+export type InterventionVerdict =
+  | "validated"
+  | "validated_combined"
+  | "insufficient_as_sole_cause"
+  | "insufficient_combined"
+  | "not_supported";
+
+export interface InterventionAttempt {
+  commit_sha: string;
+  stage_label: string | null;
+  files_reverted: string[];
+  before_metric: number | null;
+  after_metric: number;
+  baseline_metric: number | null;
+  combined: boolean;
+  verdict: InterventionVerdict;
+  recovered: boolean;
+}
+
+export interface RecoveryAction {
+  id: number;
+  source_scan_id: number;
+  healthy_sha: string;
+  degraded_sha: string;
+  contributing: { commit_sha: string; stage_label: string | null; verdict: InterventionVerdict }[];
+  files: string[];
+  status: "proposed" | "pending_ci" | "recovered" | "recovery_failed" | "aborted";
+  recovery_commit_sha: string | null;
+  before_metric: number | null;
+  after_metric: number | null;
+  resolved_scan_id: number | null;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 /** The controlled-intervention result, once a repo's own CI has reverted
@@ -265,6 +302,15 @@ export const api = {
       `/tenant/repos/${repoId}/ingest-scan-result?user_id=${userId}`,
       { method: "POST", body: JSON.stringify(result) }
     ),
+
+  getRecoveryPlan: (userId: number, repoId: number, scanId: number) =>
+    request<RecoveryAction>(`/tenant/repos/${repoId}/scans/${scanId}/recovery-plan?user_id=${userId}`),
+
+  confirmRecovery: (userId: number, repoId: number, scanId: number, expectedHeadSha: string) =>
+    request<RecoveryAction>(`/tenant/repos/${repoId}/scans/${scanId}/recover?user_id=${userId}`, {
+      method: "POST",
+      body: JSON.stringify({ expected_head_sha: expectedHeadSha }),
+    }),
 };
 
 export const RESULTS_STATIC_BASE = `${BACKEND_ORIGIN}/results-static`;

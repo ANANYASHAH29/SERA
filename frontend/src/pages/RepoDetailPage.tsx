@@ -6,7 +6,18 @@ import { useSession } from "../session";
 import { RankingTable } from "../components/RankingTable";
 import { AccuracyChart } from "../components/AccuracyChart";
 import { ErrorBanner } from "../components/StepCard";
-import { describeLikelyCause, describeWhatChanged, parseScanSummary, parseValidation, sourceLabel, timeAgo } from "../scanSummary";
+import { RecoveryPanel } from "../components/RecoveryPanel";
+import {
+  describeLikelyCause,
+  describeWhatChanged,
+  parseInterventions,
+  parseScanSummary,
+  parseValidation,
+  sourceLabel,
+  timeAgo,
+  verdictExplanation,
+  verdictLabel,
+} from "../scanSummary";
 
 const STATUS_DOT: Record<string, string> = {
   healthy: "bg-emerald-500",
@@ -139,6 +150,7 @@ export function RepoDetailPage() {
 
   const suspectCommit = latestSummary?.candidates[0];
   const validation = status === "incident" ? parseValidation(latest.validation_json) : null;
+  const interventions = status === "incident" ? parseInterventions(latest.interventions_json) : [];
   // "Recovered" is a binary pass/fail from the backend (within threshold
   // of baseline). For display, split the failure case further: any real
   // improvement over the pre-intervention accuracy is INCONCLUSIVE
@@ -338,105 +350,79 @@ export function RepoDetailPage() {
 
       {status === "incident" && whatChanged && (
         <>
-          <SectionLabel>Validation</SectionLabel>
-          <div
-            className={`mb-8 rounded-lg border border-[#E5E7EB] border-l-4 bg-white p-6 shadow-sm ${
-              validationVerdict === "validated"
-                ? "border-l-emerald-500"
-                : validationVerdict === "inconclusive"
-                  ? "border-l-amber-500"
-                  : validationVerdict === "rejected"
-                    ? "border-l-red-400"
-                    : "border-l-[#D1D5DB]"
-            }`}
-          >
-            {validation ? (
-              <>
-                <div className="mb-4 grid grid-cols-2 gap-6 sm:grid-cols-4">
-                  <div>
-                    <div className="text-xs text-[#6B7280]">Before intervention</div>
-                    <div className="text-3xl font-bold text-red-600">
-                      {validation.before_metric != null ? `${(validation.before_metric * 100).toFixed(1)}%` : "—"}
+          <SectionLabel>Validation{interventions.length > 1 ? ` — ${interventions.length} attempts` : ""}</SectionLabel>
+          {interventions.length > 0 ? (
+            <div className="mb-8 space-y-3">
+              {interventions.map((a, i) => {
+                const success = a.verdict === "validated" || a.verdict === "validated_combined";
+                const insufficient = a.verdict === "insufficient_as_sole_cause" || a.verdict === "insufficient_combined";
+                const borderClass = success ? "border-l-emerald-500" : insufficient ? "border-l-amber-500" : "border-l-[#D1D5DB]";
+                return (
+                  <div key={i} className={`rounded-lg border border-[#E5E7EB] border-l-4 bg-white p-5 shadow-sm ${borderClass}`}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-xs font-bold uppercase tracking-widest text-[#6B7280]">
+                        {a.combined ? "Combined intervention" : `Intervention ${i + 1}`} —{" "}
+                        <span className="font-mono normal-case">{a.commit_sha.slice(0, 10)}</span>
+                        {a.stage_label && ` · ${a.stage_label}`}
+                      </div>
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${
+                          success
+                            ? "bg-emerald-50 text-emerald-700"
+                            : insufficient
+                              ? "bg-amber-50 text-amber-700"
+                              : "bg-[#F7F8FA] text-[#6B7280]"
+                        }`}
+                      >
+                        {verdictLabel(a.verdict)}
+                      </span>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-[#6B7280]">After intervention</div>
-                    <div className="text-3xl font-bold text-emerald-600">{(validation.after_metric * 100).toFixed(1)}%</div>
-                  </div>
-                  {validation.before_metric != null && (
-                    <>
+                    <div className="mb-2 grid grid-cols-2 gap-6 sm:grid-cols-3">
                       <div>
-                        <div className="text-xs text-[#6B7280]">Recovery delta</div>
-                        <div className="text-xl font-bold text-[#111827]">
-                          +{((validation.after_metric - validation.before_metric) * 100).toFixed(1)}pt
+                        <div className="text-xs text-[#6B7280]">Before</div>
+                        <div className="text-xl font-bold text-red-600">
+                          {a.before_metric != null ? `${(a.before_metric * 100).toFixed(1)}%` : "—"}
                         </div>
                       </div>
-                      {validation.baseline_metric != null && validation.baseline_metric > validation.before_metric && (
+                      <div>
+                        <div className="text-xs text-[#6B7280]">After</div>
+                        <div className="text-xl font-bold text-emerald-600">{(a.after_metric * 100).toFixed(1)}%</div>
+                      </div>
+                      {a.before_metric != null && (
                         <div>
-                          <div className="text-xs text-[#6B7280]">Recovery ratio</div>
+                          <div className="text-xs text-[#6B7280]">Delta</div>
                           <div className="text-xl font-bold text-[#111827]">
-                            {(
-                              ((validation.after_metric - validation.before_metric) /
-                                (validation.baseline_metric - validation.before_metric)) *
-                              100
-                            ).toFixed(0)}
-                            %
+                            {a.after_metric >= a.before_metric ? "+" : ""}
+                            {((a.after_metric - a.before_metric) * 100).toFixed(1)}pt
                           </div>
                         </div>
                       )}
-                    </>
-                  )}
-                </div>
-                <div className="mb-3 text-sm text-[#374151]">
-                  Intervention: restore {validation.files_reverted.join(", ")} to its state before commit{" "}
-                  <span className="font-mono">{whatChanged.commitSha.slice(0, 10)}</span>, re-run the canary in the same CI
-                  environment.
-                </div>
-                {validationVerdict === "validated" && (
-                  <div className="rounded-md bg-emerald-50 px-4 py-3 text-base font-bold text-emerald-700">
-                    ✓ CAUSE VALIDATED — degradation recovered
+                    </div>
+                    <p className="text-xs text-[#6B7280]">{verdictExplanation(a.verdict)}</p>
                   </div>
-                )}
-                {validationVerdict === "inconclusive" && (
-                  <div className="rounded-md bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
-                    ⚠ INCONCLUSIVE — the intervention improved performance but did not restore the baseline. This
-                    hypothesis explains part of the regression; SERA has not ruled it out, but it doesn't fully account
-                    for the observed drop.
-                  </div>
-                )}
-                {validationVerdict === "rejected" && (
-                  <div className="rounded-md bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-                    ✕ REJECTED — reverting this commit alone produced no improvement; this hypothesis does not explain
-                    the regression.
-                  </div>
-                )}
-              </>
-            ) : (
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mb-8 rounded-lg border border-[#E5E7EB] border-l-4 border-l-[#D1D5DB] bg-white p-6 shadow-sm">
               <p className="text-sm text-[#9CA3AF]">
-                Waiting on the tenant's CI to report the controlled-intervention result (revert the suspect files, re-run
-                the canary, and confirm whether accuracy recovers).
+                Waiting on the tenant's CI to report the controlled-intervention result (revert the suspect files,
+                re-run the canary, and confirm whether accuracy recovers).
               </p>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
 
-      {status === "incident" && whatChanged && (
+      {status === "incident" && whatChanged && interventions.length > 0 && session && id && (
         <>
-          <SectionLabel>Recovery &amp; feedback</SectionLabel>
-          <div className="mb-8 rounded-lg border border-[#E5E7EB] bg-white p-6 shadow-sm">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
-              <div className="text-[#6B7280]">Recommended action</div>
-              <div className="text-base font-semibold text-[#111827]">
-                {validation?.recovered
-                  ? `Revert ${validation.files_reverted.join(", ")} in commit ${whatChanged.commitSha.slice(0, 10)}`
-                  : validation
-                    ? "Reverting this commit alone didn't recover accuracy — keep investigating the next-ranked candidate"
-                    : `Review ${whatChanged.files.map((f) => f.path).join(", ")} in commit ${whatChanged.commitSha.slice(0, 10)}`}
-              </div>
-            </div>
-            <div className="mt-2 text-xs text-emerald-600">Incident stored ✓ (scan #{latest.id})</div>
-          </div>
+          <SectionLabel>Recovery recommendation</SectionLabel>
+          <RecoveryPanel
+            userId={session.userId}
+            repoId={parseInt(id, 10)}
+            scanId={latest.id}
+            repoFullName={repo?.repo_full_name ?? ""}
+          />
         </>
       )}
 
@@ -444,7 +430,7 @@ export function RepoDetailPage() {
         <>
           <SectionLabel>Diagnostic ranking — {latestSummary.candidates.length} hypotheses</SectionLabel>
           <div className="mb-8 rounded-lg border border-[#E5E7EB] bg-white p-6 shadow-sm">
-            <RankingTable candidates={latestSummary.candidates} theme="light" topVerdict={validationVerdict} />
+            <RankingTable candidates={latestSummary.candidates} theme="light" interventions={interventions} />
           </div>
         </>
       )}

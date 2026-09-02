@@ -14,6 +14,7 @@ from sera.api.routes_badge import router as badge_router
 from sera.api.routes_experiments import router as experiments_router
 from sera.api.routes_generic_scan import router as generic_scan_router
 from sera.api.routes_incidents import router as incidents_router
+from sera.api.routes_recovery import router as recovery_router
 from sera.api.routes_report import router as report_router
 from sera.api.routes_runs import router as runs_router
 from sera.api.routes_tenant import router as tenant_router
@@ -51,6 +52,7 @@ app.include_router(webhook_router)
 app.include_router(badge_router)
 app.include_router(report_router)
 app.include_router(generic_scan_router)
+app.include_router(recovery_router)
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/results-static", StaticFiles(directory=str(RESULTS_DIR)), name="results-static")

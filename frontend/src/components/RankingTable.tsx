@@ -1,5 +1,6 @@
-import type { RankedCandidateOut } from "../api";
+import type { InterventionAttempt, RankedCandidateOut } from "../api";
 import type { Theme } from "./StepCard";
+import { verdictLabel } from "../scanSummary";
 
 function ScoreBlocks({ value, theme }: { value: number; theme: Theme }) {
   const total = 10;
@@ -19,24 +20,24 @@ function ScoreBlocks({ value, theme }: { value: number; theme: Theme }) {
   );
 }
 
-type Verdict = "validated" | "inconclusive" | "rejected" | null;
-
 function statusLabel(
   rank: number,
   kind: string,
   light: boolean,
-  verdict: Verdict
+  attempt: InterventionAttempt | undefined
 ): { text: string; className: string } {
+  if (attempt) {
+    const verdict = attempt.verdict;
+    if (verdict === "validated" || verdict === "validated_combined") {
+      return { text: verdictLabel(verdict), className: light ? "bg-emerald-50 text-emerald-700" : "bg-emerald-950/50 text-emerald-300" };
+    }
+    if (verdict === "not_supported") {
+      return { text: verdictLabel(verdict), className: light ? "bg-[#F7F8FA] text-[#6B7280]" : "bg-slate-800 text-slate-400" };
+    }
+    // insufficient_as_sole_cause / insufficient_combined
+    return { text: verdictLabel(verdict), className: light ? "bg-amber-50 text-amber-700" : "bg-amber-950/50 text-amber-300" };
+  }
   if (rank === 0) {
-    if (verdict === "validated") {
-      return { text: "VALIDATED", className: light ? "bg-emerald-50 text-emerald-700" : "bg-emerald-950/50 text-emerald-300" };
-    }
-    if (verdict === "rejected") {
-      return { text: "REJECTED", className: light ? "bg-red-50 text-red-700" : "bg-red-950/50 text-red-300" };
-    }
-    if (verdict === "inconclusive") {
-      return { text: "INCONCLUSIVE", className: light ? "bg-amber-50 text-amber-700" : "bg-amber-950/50 text-amber-300" };
-    }
     return { text: "TOP SUSPECT", className: light ? "bg-red-50 text-red-700" : "bg-red-950/50 text-red-300" };
   }
   if (kind === "drift") {
@@ -48,11 +49,11 @@ function statusLabel(
 export function RankingTable({
   candidates,
   theme = "dark",
-  topVerdict = null,
+  interventions = [],
 }: {
   candidates: RankedCandidateOut[];
   theme?: Theme;
-  topVerdict?: Verdict;
+  interventions?: InterventionAttempt[];
 }) {
   const light = theme === "light";
   const headClass = light ? "text-[#6B7280]" : "text-slate-500";
@@ -78,7 +79,8 @@ export function RankingTable({
         <tbody>
           {candidates.map((c) => {
             const isDrift = c.kind === "drift";
-            const status = statusLabel(c.rank, c.kind, light, topVerdict);
+            const attempt = interventions.find((a) => !a.combined && a.commit_sha === c.commit_sha);
+            const status = statusLabel(c.rank, c.kind, light, attempt);
             return (
               <tr key={c.candidate_id} className={`border-t ${rowBorder}`}>
                 <td className={`py-2.5 pr-3 font-mono ${mutedText}`}>{String(c.rank + 1).padStart(2, "0")}</td>

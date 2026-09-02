@@ -41,7 +41,7 @@ from sera.method.evidence_signals import compute_shape_features
 from sera.method.generic_scan import GenericScanResult, process_generic_scan_result
 from sera.method.memory import record_run
 from sera.method.ranker import rank_candidates
-from sera.method.validation import record_validation
+from sera.method.validation import record_interventions, record_validation
 from sera.repo_config import load_repo_config_from_github
 
 router = APIRouter(prefix="/report", tags=["report"])
@@ -200,6 +200,49 @@ def report_validation(repo_id: int, req: ValidateScanRequest):
         validation = record_validation(scan, req.files_reverted, req.after_metric)
         session.flush()
         return {"status": "validated", "recovered": validation["recovered"]}
+
+
+class InterventionAttemptIn(BaseModel):
+    commit_sha: str
+    stage_label: Optional[str] = None
+    files_reverted: list[str]
+    after_metric: float
+    combined: bool = False
+
+
+class ValidateScanSequenceRequest(BaseModel):
+    report_token: str
+    scan_id: int
+    interventions: list[InterventionAttemptIn]
+
+
+@router.post("/{repo_id}/validate-scan-sequence")
+def report_validation_sequence(repo_id: int, req: ValidateScanSequenceRequest):
+    """Sequential-validation version of /validate-scan: the tenant's CI
+    tried more than one candidate's revert (and, if none alone recovered
+    the baseline, the combined revert of every candidate that showed
+    real individual improvement) -- see scripts/report_scan.py's
+    run_intervention_sequence. Stores the full attempt sequence with a
+    three-way verdict per attempt (validated / insufficient-as-sole-cause
+    / not-supported) instead of collapsing everything to one
+    recovered/not-recovered boolean, which is what makes a deterministic
+    multi-fault recovery plan possible afterward.
+    """
+    with session_scope() as session:
+        repo = session.query(ConnectedRepo).filter_by(id=repo_id).one_or_none()
+        if repo is None or not repo.report_token or not hmac.compare_digest(
+            repo.report_token, req.report_token
+        ):
+            raise HTTPException(404, "not found")
+
+        scan = session.query(ScanResult).filter_by(id=req.scan_id, repo_id=repo_id).one_or_none()
+        if scan is None:
+            raise HTTPException(404, "scan not found")
+
+        attempts = [a.model_dump() for a in req.interventions]
+        recorded = record_interventions(scan, attempts)
+        session.flush()
+        return {"status": "recorded", "interventions": recorded}
 
 
 def _candidate_window_start(session, repo: ConnectedRepo):

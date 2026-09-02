@@ -30,6 +30,11 @@ class GenericScanResult(BaseModel):
     per_sample_scores: List[int]
     n_samples: int
     canary_set_hash: Optional[str] = None
+    # The commit the CI actually ran against -- optional so old reporters
+    # (and the dashboard's manual-paste path, which has no git checkout to
+    # ask) keep working, but required for the recovery workflow, which
+    # needs to know exactly which real Git state was healthy.
+    head_sha: Optional[str] = None
 
     @model_validator(mode="after")
     def _check_sample_count_consistency(self):
@@ -110,6 +115,7 @@ def process_generic_scan_result(
             repo_id=repo.id,
             run_id=run.id,
             status="healthy",
+            head_sha=result.head_sha,
             summary_json=json.dumps(
                 {
                     "task_type": result.task_type,
@@ -158,6 +164,7 @@ def process_generic_scan_result(
         repo_id=repo.id,
         run_id=run.id,
         status=status,
+        head_sha=result.head_sha,
         summary_json=json.dumps(
             {
                 "task_type": result.task_type,
@@ -183,15 +190,28 @@ def process_generic_scan_result(
     repo.last_scan_at = datetime.utcnow()
     session.flush()
 
+    from sera.method.recovery import resolve_pending_recovery
+
+    resolve_pending_recovery(session, repo, scan)
+
     response = {"status": status, "scan_id": scan.id, "metric_drop": drop}
-    # Surface the top commit candidate directly in the report response (not
-    # just stored server-side) so a CI reporter can immediately act on it --
-    # e.g. revert exactly these files and re-run the canary as a validation
-    # step -- without a second round-trip to fetch the ranking.
-    if candidates_out and candidates_out[0]["kind"] == "commit":
-        top = candidates_out[0]
+    # Surface up to the top 3 commit candidates directly in the report
+    # response (not just stored server-side) so a CI reporter can
+    # immediately act on them -- sequential per-candidate validation,
+    # without a second round-trip to fetch the ranking. top_candidate is
+    # kept as the first entry for any caller that only wants one.
+    commit_candidates = [c for c in candidates_out if c["kind"] == "commit"][:3]
+    if commit_candidates:
+        response["candidates"] = [
+            {
+                "commit_sha": c["commit_sha"],
+                "stage_label": c.get("stage_label"),
+                "files_changed": c["commit_files"],
+            }
+            for c in commit_candidates
+        ]
         response["top_candidate"] = {
-            "commit_sha": top["commit_sha"],
-            "files_changed": top["commit_files"],
+            "commit_sha": commit_candidates[0]["commit_sha"],
+            "files_changed": commit_candidates[0]["commit_files"],
         }
     return response

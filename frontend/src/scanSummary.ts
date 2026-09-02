@@ -1,4 +1,4 @@
-import type { InterventionResult, RankedCandidateOut } from "./api";
+import type { InterventionAttempt, InterventionResult, InterventionVerdict, RankedCandidateOut } from "./api";
 
 export interface ParsedScanSummary {
   primaryMetricName: string;
@@ -51,6 +51,48 @@ export function parseValidation(raw: string | null): InterventionResult | null {
   } catch {
     return null;
   }
+}
+
+/** The full sequential-validation attempt list, when the tenant's CI
+ * tested more than one candidate (or a combined revert) -- see
+ * sera.method.validation.record_interventions. Empty if only the
+ * single-attempt /validate-scan path was used (or nothing reported yet).
+ */
+export function parseInterventions(raw: string | null): InterventionAttempt[] {
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as InterventionAttempt[];
+  } catch {
+    return [];
+  }
+}
+
+const VERDICT_LABEL: Record<InterventionVerdict, string> = {
+  validated: "VALIDATED",
+  validated_combined: "VALIDATED (COMBINED)",
+  insufficient_as_sole_cause: "INSUFFICIENT AS SOLE CAUSE",
+  insufficient_combined: "INSUFFICIENT (COMBINED)",
+  not_supported: "NOT SUPPORTED",
+};
+
+const VERDICT_EXPLANATION: Record<InterventionVerdict, string> = {
+  validated: "Reverting this commit alone restored the healthy baseline.",
+  validated_combined:
+    "None of the contributing commits alone restored the baseline, but reverting all of them together did.",
+  insufficient_as_sole_cause:
+    "Reverting this commit alone improved accuracy but did not restore the healthy baseline. Other validated contributing changes may remain -- this is not evidence the commit is unrelated.",
+  insufficient_combined:
+    "Reverting every commit that showed individual improvement, together, still did not restore the baseline.",
+  not_supported:
+    "Reverting this commit alone produced no measurable improvement. In a single-cause incident this would rule it out; in a multi-fault incident it does not, on its own, prove the commit is unrelated.",
+};
+
+export function verdictLabel(verdict: InterventionVerdict): string {
+  return VERDICT_LABEL[verdict] ?? verdict.toUpperCase();
+}
+
+export function verdictExplanation(verdict: InterventionVerdict): string {
+  return VERDICT_EXPLANATION[verdict] ?? "";
 }
 
 const SOURCE_LABEL: Record<string, string> = {

@@ -179,8 +179,57 @@ class ScanResult(Base):
     # Populated later, asynchronously, by the tenant's own CI reverting the
     # top suspect commit's files and re-running the canary -- see
     # sera.method.validation. Null until (and unless) that follow-up report
-    # arrives; an incident is fully valid evidence without it.
+    # arrives; an incident is fully valid evidence without it. Kept as the
+    # single "primary" (first) intervention attempt for backward
+    # compatibility with existing UI; interventions_json below holds the
+    # full sequence when more than one candidate was tested.
     validation_json = Column(Text, nullable=True)
+    # Every individual + combined intervention attempt tried for this
+    # incident, in order -- see sera.method.recovery.run_sequential_validation.
+    # Each entry: {commit_sha, stage_label, before_metric, after_metric,
+    # verdict, files_reverted, combined: bool}.
+    interventions_json = Column(Text, nullable=True)
+    # The commit SHA the CI actually ran against for this scan -- needed
+    # to know which real Git state was "healthy" so a recovery commit can
+    # restore files to that exact version, not just "the previous commit."
+    head_sha = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     repo = relationship("ConnectedRepo", back_populates="scan_results")
+
+
+class RecoveryAction(Base):
+    """A developer-approved "restore to last known healthy state" action
+    for one incident. Never created or executed without explicit
+    confirmation (see sera.method.recovery) -- this row exists from the
+    moment a plan is proposed (status="proposed"), before any repository
+    mutation happens, specifically so double-clicking confirm is
+    idempotent: a second confirm on the same source_scan_id finds this
+    existing row instead of creating a second recovery commit.
+    """
+
+    __tablename__ = "recovery_actions"
+
+    id = Column(Integer, primary_key=True)
+    repo_id = Column(Integer, ForeignKey("connected_repos.id"), nullable=False)
+    source_scan_id = Column(Integer, ForeignKey("scan_results.id"), nullable=False, unique=True)
+    healthy_sha = Column(String, nullable=False)
+    degraded_sha = Column(String, nullable=False)
+    # [{commit_sha, stage_label, verdict}] -- the candidates whose files
+    # are actually being restored, with the evidence that put them there.
+    contributing_json = Column(Text, nullable=False)
+    files_json = Column(Text, nullable=False)  # the restored file paths, union across contributing_json
+    # proposed -> pending_ci -> recovered | recovery_failed | aborted
+    status = Column(String, nullable=False, default="proposed")
+    recovery_commit_sha = Column(String, nullable=True)
+    before_metric = Column(Float, nullable=True)
+    after_metric = Column(Float, nullable=True)
+    # The scan produced by the recovery commit's own CI run, once it
+    # arrives -- what actually resolves this action to recovered/failed.
+    resolved_scan_id = Column(Integer, ForeignKey("scan_results.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+    repo = relationship("ConnectedRepo")
+    source_scan = relationship("ScanResult", foreign_keys=[source_scan_id])
+    resolved_scan = relationship("ScanResult", foreign_keys=[resolved_scan_id])
