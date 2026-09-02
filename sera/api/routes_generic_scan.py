@@ -18,7 +18,6 @@ from __future__ import annotations
 import secrets
 
 from fastapi import APIRouter, HTTPException
-from github import GithubException
 
 from sera.api.routes_report import _fetch_and_classify_commits
 from sera.db.session import session_scope
@@ -98,7 +97,13 @@ def setup_ci_automation(repo_id: int, user_id: int, base_url: str = "http://127.
 
     try:
         return setup_ci_reporting(repo_full_name, token, base_url, repo_pk, report_token)
-    except GithubException as e:
+    except Exception as e:
+        # Broad on purpose: PyGithub's exception hierarchy for a 403 from
+        # the /actions/secrets endpoints isn't consistent across versions
+        # (a bare `except GithubException` here previously let some of
+        # them escape as an unhandled 500) -- every failure mode from this
+        # call is "GitHub rejected the automated setup," so surface all of
+        # them as the same actionable 403 rather than crash.
         raise HTTPException(
             403,
             {
