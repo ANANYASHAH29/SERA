@@ -6,8 +6,12 @@ frontend (see frontend/README.md) against this same backend.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+import logging
+import traceback
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from sera.api.routes_badge import router as badge_router
@@ -61,3 +65,20 @@ app.mount("/results-static", StaticFiles(directory=str(RESULTS_DIR)), name="resu
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+_logger = logging.getLogger("sera")
+
+
+# TEMPORARY debugging aid: an unhandled exception in the deployed
+# environment isn't reproducing locally with identical code+data, and
+# there's no other way to see the real traceback from here. Remove this
+# once the underlying bug is found -- it's not safe to ship long-term
+# (leaks internals to any caller that manages to 500 an endpoint).
+@app.exception_handler(Exception)
+async def _debug_exception_handler(request: Request, exc: Exception):
+    _logger.exception("unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": traceback.format_exc()},
+    )
